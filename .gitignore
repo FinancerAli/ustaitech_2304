@@ -1,0 +1,15 @@
+
+# Local database files
+# Secrets and local runtime
+*.db
+*.env
+*.log
+*.pyc
+*.sqlite
+*.sqlite3
+.env
+/local_dev_backups/
+__pycache__/
+bot.db
+opt/local_dev_backups/
+venv/
