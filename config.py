@@ -10,6 +10,15 @@ CARD_OWNER = os.getenv("CARD_OWNER", "")
 BOT_USERNAME = os.getenv("BOT_USERNAME", "")
 DB_PATH = "bot.db"
 
+USE_REDIS = os.getenv("USE_REDIS", "false").lower() == "true"
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+# AI Agent config
+AI_ENABLED = os.getenv("AI_ENABLED", "false").lower() == "true"
+AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")
+AI_API_KEY = os.getenv("AI_API_KEY", "")
+AI_MODEL = os.getenv("AI_MODEL", "gemini-2.0-flash")
+
 # Referral bonus config
 BONUS_JOIN = {
     "bronze": int(os.getenv("BONUS_JOIN_BRONZE", 5000)),

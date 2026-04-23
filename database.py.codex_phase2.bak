@@ -1,5 +1,4 @@
 import secrets
-from datetime import datetime, timedelta
 import aiosqlite
 from config import DB_PATH
 
@@ -11,9 +10,7 @@ async def init_db():
         await db.execute(
             "CREATE TABLE IF NOT EXISTS services "
             "(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT, "
-            "price INTEGER NOT NULL, active INTEGER DEFAULT 1, category_id INTEGER, image_file_id TEXT, "
-            "delivery_mode TEXT DEFAULT 'manual', required_referrals INTEGER DEFAULT 0, "
-            "requires_email INTEGER DEFAULT 0, referral_deadline_days INTEGER DEFAULT 0)"
+            "price INTEGER NOT NULL, active INTEGER DEFAULT 1, category_id INTEGER, image_file_id TEXT)"
         )
         await db.execute(
             "CREATE TABLE IF NOT EXISTS users "
@@ -27,11 +24,7 @@ async def init_db():
             "service_name TEXT NOT NULL, price INTEGER NOT NULL, status TEXT DEFAULT 'pending', "
             "note TEXT, receipt_file_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, discount INTEGER DEFAULT 0, "
-            "final_price INTEGER, coupon_code TEXT, customer_email TEXT, "
-            "required_referrals INTEGER DEFAULT 0, current_referrals INTEGER DEFAULT 0, "
-            "referral_status TEXT DEFAULT 'not_required', referral_code TEXT, referral_link TEXT, "
-            "referral_deadline_at TEXT, activation_status TEXT DEFAULT 'pending', "
-            "activation_ready_at TEXT, activated_at TEXT)"
+            "final_price INTEGER, coupon_code TEXT)"
         )
         await db.execute(
             "CREATE TABLE IF NOT EXISTS categories "
@@ -113,13 +106,6 @@ async def init_db():
             "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             "paid_at TIMESTAMP)"
         )
-        await db.execute(
-            "CREATE TABLE IF NOT EXISTS referral_invites "
-            "(id INTEGER PRIMARY KEY AUTOINCREMENT, order_id INTEGER NOT NULL, "
-            "service_id INTEGER NOT NULL, owner_user_id INTEGER NOT NULL, "
-            "invited_user_id INTEGER NOT NULL, referral_code TEXT NOT NULL, "
-            "status TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
-        )
         await db.execute("CREATE INDEX IF NOT EXISTS idx_services_category ON services(category_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_reviews_service ON reviews(service_id)")
@@ -154,22 +140,8 @@ async def init_db():
             ("services", "flash_discount", "INTEGER DEFAULT 0"),
             ("services", "flash_expire_at", "TIMESTAMP"),
             ("services", "is_deleted", "INTEGER DEFAULT 0"),
-            ("services", "delivery_mode", "TEXT DEFAULT 'manual'"),
-            ("services", "required_referrals", "INTEGER DEFAULT 0"),
-            ("services", "requires_email", "INTEGER DEFAULT 0"),
-            ("services", "referral_deadline_days", "INTEGER DEFAULT 0"),
             ("orders", "fulfillment_status", "TEXT DEFAULT 'pending'"),
             ("orders", "delivered_at", "TIMESTAMP"),
-            ("orders", "customer_email", "TEXT"),
-            ("orders", "required_referrals", "INTEGER DEFAULT 0"),
-            ("orders", "current_referrals", "INTEGER DEFAULT 0"),
-            ("orders", "referral_status", "TEXT DEFAULT 'not_required'"),
-            ("orders", "referral_code", "TEXT"),
-            ("orders", "referral_link", "TEXT"),
-            ("orders", "referral_deadline_at", "TEXT"),
-            ("orders", "activation_status", "TEXT DEFAULT 'pending'"),
-            ("orders", "activation_ready_at", "TEXT"),
-            ("orders", "activated_at", "TEXT"),
         ]
         for table, col, col_type in migrations:
             try:
@@ -198,18 +170,6 @@ async def init_db():
             await db.execute(
                 "UPDATE services SET supports_stars = 0 WHERE stars_price <= 0 AND supports_stars = 1"
             )
-            await db.execute(
-                "UPDATE services SET delivery_mode = 'manual' WHERE delivery_mode IS NULL OR delivery_mode = ''"
-            )
-            await db.execute(
-                "UPDATE services SET required_referrals = 0 WHERE required_referrals IS NULL"
-            )
-            await db.execute(
-                "UPDATE services SET requires_email = 0 WHERE requires_email IS NULL"
-            )
-            await db.execute(
-                "UPDATE services SET referral_deadline_days = 0 WHERE referral_deadline_days IS NULL"
-            )
             
             # --- Coupons ---
             await db.execute("UPDATE coupons SET used_count = 0 WHERE used_count IS NULL")
@@ -226,10 +186,6 @@ async def init_db():
             await db.execute("UPDATE orders SET quantity = 1 WHERE quantity IS NULL")
             await db.execute("UPDATE orders SET bonus_used = 0 WHERE bonus_used IS NULL")
             await db.execute("UPDATE orders SET cashback_awarded = 0 WHERE cashback_awarded IS NULL")
-            await db.execute("UPDATE orders SET required_referrals = 0 WHERE required_referrals IS NULL")
-            await db.execute("UPDATE orders SET current_referrals = 0 WHERE current_referrals IS NULL")
-            await db.execute("UPDATE orders SET referral_status = 'not_required' WHERE referral_status IS NULL OR referral_status = ''")
-            await db.execute("UPDATE orders SET activation_status = 'pending' WHERE activation_status IS NULL OR activation_status = ''")
 
             await db.commit()
         except Exception:
@@ -247,17 +203,6 @@ async def init_db():
         except Exception:
             pass
 
-        try:
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_referral_invites_order ON referral_invites(order_id)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_referral_invites_owner ON referral_invites(owner_user_id)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_referral_invites_invited ON referral_invites(invited_user_id)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_orders_referral_code ON orders(referral_code)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_orders_referral_status ON orders(referral_status)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_orders_activation_status ON orders(activation_status)")
-            await db.commit()
-        except Exception:
-            pass
-
 
 def normalize_service(row) -> dict:
     """Convert a sqlite3.Row / aiosqlite.Row / dict into a plain dict with safe defaults.
@@ -266,7 +211,7 @@ def normalize_service(row) -> dict:
     even when the underlying DB row comes from a legacy schema that predates
     Stars, descriptions, or stock columns.
 
-    This is a **pure** function ? it never writes back to the DB.
+    This is a **pure** function — it never writes back to the DB.
     """
     if row is None:
         return None
@@ -285,11 +230,8 @@ def normalize_service(row) -> dict:
     d["active"] = int(d.get("active") or 1)
     d["stars_price"] = int(d["stars_price"]) if d.get("stars_price") is not None else 0
     d["supports_stars"] = int(d["supports_stars"]) if d.get("supports_stars") is not None else 0
-    d["required_referrals"] = int(d.get("required_referrals") or 0)
-    d["requires_email"] = int(d.get("requires_email") or 0)
-    d["referral_deadline_days"] = int(d.get("referral_deadline_days") or 0)
 
-    # Self-heal: stars enabled but price missing ? disable
+    # Self-heal: stars enabled but price missing → disable
     if d["supports_stars"] and d["stars_price"] <= 0:
         d["supports_stars"] = 0
 
@@ -304,7 +246,6 @@ def normalize_service(row) -> dict:
     d["auto_deliver"] = int(d.get("auto_deliver") or 0)
     d["flash_discount"] = int(d.get("flash_discount") or 0)
     d.setdefault("flash_expire_at", None)
-    d["delivery_mode"] = (d.get("delivery_mode") or "manual").strip() or "manual"
 
     return d
 
@@ -361,23 +302,12 @@ def normalize_order(row) -> dict:
     d["cashback_awarded"] = int(d.get("cashback_awarded") or 0)
     d["payment_status"] = d.get("payment_status") or "pending"
     d["payment_method"] = d.get("payment_method") or "manual"
-    d["required_referrals"] = int(d.get("required_referrals") or 0)
-    d["current_referrals"] = int(d.get("current_referrals") or 0)
     d.setdefault("note", None)
     d.setdefault("receipt_file_id", None)
     d.setdefault("coupon_code", None)
     d.setdefault("invoice_payload", None)
     d.setdefault("telegram_payment_charge_id", None)
     d.setdefault("paid_at", None)
-    d.setdefault("customer_email", None)
-    d["referral_status"] = d.get("referral_status") or "not_required"
-    d.setdefault("referral_code", None)
-    d.setdefault("referral_link", None)
-    d.setdefault("referral_deadline_at", None)
-    d["activation_status"] = d.get("activation_status") or "pending"
-    d.setdefault("activation_ready_at", None)
-    d.setdefault("activated_at", None)
-    d["fulfillment_status"] = d.get("fulfillment_status") or "pending"
     return d
 
 
@@ -405,15 +335,11 @@ async def delete_promo(promo_id: int):
 
 # SERVICES
 
-async def add_service(name, description, price, category_id=None, image_file_id=None, delivery_content=None, stock=0, description_uz=None, description_ru=None, stars_price=0, supports_stars=0, delivery_mode="manual", required_referrals=0, requires_email=0, referral_deadline_days=0):
+async def add_service(name, description, price, category_id=None, image_file_id=None, delivery_content=None, stock=0, description_uz=None, description_ru=None, stars_price=0, supports_stars=0):
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO services (name, description, description_uz, description_ru, price, category_id, image_file_id, delivery_content, stock, stars_price, supports_stars, delivery_mode, required_referrals, requires_email, referral_deadline_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                name, description, description_uz or description, description_ru or description,
-                price, category_id, image_file_id, delivery_content, stock, stars_price, supports_stars,
-                delivery_mode, required_referrals, requires_email, referral_deadline_days,
-            ),
+            "INSERT INTO services (name, description, description_uz, description_ru, price, category_id, image_file_id, delivery_content, stock, stars_price, supports_stars) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (name, description, description_uz or description, description_ru or description, price, category_id, image_file_id, delivery_content, stock, stars_price, supports_stars),
         )
         await db.commit()
         return cursor.lastrowid
@@ -532,15 +458,11 @@ async def get_service(service_id):
         return await cursor.fetchone()
 
 
-async def update_service(service_id, name, description, price, description_ru=None, stars_price=0, supports_stars=0, delivery_mode="manual", required_referrals=0, requires_email=0, referral_deadline_days=0):
+async def update_service(service_id, name, description, price, description_ru=None, stars_price=0, supports_stars=0):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE services SET name=?, description=?, description_uz=?, description_ru=?, price=?, stars_price=?, supports_stars=?, delivery_mode=?, required_referrals=?, requires_email=?, referral_deadline_days=? WHERE id=?",
-            (
-                name, description, description, description_ru or description, price,
-                stars_price, supports_stars, delivery_mode, required_referrals,
-                requires_email, referral_deadline_days, service_id,
-            ),
+            "UPDATE services SET name=?, description=?, description_uz=?, description_ru=?, price=?, stars_price=?, supports_stars=? WHERE id=?",
+            (name, description, description, description_ru or description, price, stars_price, supports_stars, service_id),
         )
         await db.commit()
 
@@ -803,198 +725,17 @@ async def get_user_count():
 # ORDERS
 
 async def create_order(user_id, service_id, service_name, price, note="",
-                       discount=0, final_price=None, coupon_code=None, bonus_used=0, quantity=1,
-                       customer_email=None, required_referrals=0, current_referrals=0,
-                       referral_status="not_required", referral_code=None, referral_link=None,
-                       referral_deadline_at=None, activation_status="pending",
-                       activation_ready_at=None, activated_at=None):
+                       discount=0, final_price=None, coupon_code=None, bonus_used=0, quantity=1):
     if final_price is None:
         final_price = price * quantity - (price * quantity * discount // 100)
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO orders (user_id, service_id, service_name, price, note, discount, final_price, coupon_code, bonus_used, quantity, customer_email, required_referrals, current_referrals, referral_status, referral_code, referral_link, referral_deadline_at, activation_status, activation_ready_at, activated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                user_id, service_id, service_name, price, note, discount, final_price, coupon_code,
-                bonus_used, quantity, customer_email, required_referrals, current_referrals,
-                referral_status, referral_code, referral_link, referral_deadline_at,
-                activation_status, activation_ready_at, activated_at,
-            ),
+            "INSERT INTO orders (user_id, service_id, service_name, price, note, discount, final_price, coupon_code, bonus_used, quantity)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, service_id, service_name, price, note, discount, final_price, coupon_code, bonus_used, quantity),
         )
         await db.commit()
         return cursor.lastrowid
-
-
-async def get_order_by_referral(order_id, referral_code):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM orders WHERE id=? AND referral_code=?",
-            (order_id, referral_code),
-        )
-        row = await cursor.fetchone()
-        return normalize_order(row)
-
-
-async def set_order_referral_email(order_id: int, email: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE orders SET customer_email=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (email, order_id),
-        )
-        await db.commit()
-
-
-async def set_order_referral_link(order_id: int, referral_link: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE orders SET referral_link=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (referral_link, order_id),
-        )
-        await db.commit()
-
-
-async def update_order_referral_progress(order_id: int, current_referrals: int, referral_status: str = None):
-    async with aiosqlite.connect(DB_PATH) as db:
-        if referral_status is None:
-            await db.execute(
-                "UPDATE orders SET current_referrals=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                (current_referrals, order_id),
-            )
-        else:
-            await db.execute(
-                "UPDATE orders SET current_referrals=?, referral_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                (current_referrals, referral_status, order_id),
-            )
-        await db.commit()
-
-
-async def mark_referral_ready(order_id: int, referral_status: str = "target_met"):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE orders SET referral_status=?, activation_status='ready', activation_ready_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (referral_status, order_id),
-        )
-        await db.commit()
-
-
-async def mark_referral_activated(order_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE orders SET activation_status='activated', activated_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (order_id,),
-        )
-        await db.commit()
-
-
-async def cancel_referral_order(order_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE orders SET referral_status='cancelled', activation_status='failed', updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (order_id,),
-        )
-        await db.commit()
-
-
-async def set_referral_deadline(order_id: int, deadline_at: str = None):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE orders SET referral_deadline_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (deadline_at, order_id),
-        )
-        await db.commit()
-
-
-async def expire_referral_order_if_needed(order_id: int):
-    order = await get_order(order_id)
-    if not order:
-        return None
-    if order["referral_status"] in ("target_met", "expired", "cancelled"):
-        return order
-    deadline_at = order.get("referral_deadline_at")
-    if not deadline_at:
-        return order
-    try:
-        deadline_dt = datetime.strptime(str(deadline_at)[:19], "%Y-%m-%d %H:%M:%S")
-    except Exception:
-        return order
-    if datetime.now() <= deadline_dt:
-        return order
-    if order["current_referrals"] >= order["required_referrals"]:
-        return order
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE orders SET referral_status='expired', updated_at=CURRENT_TIMESTAMP WHERE id=?",
-            (order_id,),
-        )
-        await db.commit()
-    return await get_order(order_id)
-
-
-async def create_referral_invite(order_id: int, service_id: int, owner_user_id: int, invited_user_id: int, referral_code: str, status: str):
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "INSERT INTO referral_invites (order_id, service_id, owner_user_id, invited_user_id, referral_code, status) VALUES (?, ?, ?, ?, ?, ?)",
-            (order_id, service_id, owner_user_id, invited_user_id, referral_code, status),
-        )
-        await db.commit()
-        return cursor.lastrowid
-
-
-async def get_referral_invite_for_order_user(order_id: int, invited_user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM referral_invites WHERE order_id=? AND invited_user_id=? ORDER BY id DESC LIMIT 1",
-            (order_id, invited_user_id),
-        )
-        row = await cursor.fetchone()
-        return dict(row) if row else None
-
-
-async def get_referral_invites(order_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        cursor = await db.execute(
-            "SELECT * FROM referral_invites WHERE order_id=? ORDER BY created_at DESC, id DESC",
-            (order_id,),
-        )
-        rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-
-
-async def get_referral_orders(referral_status=None, activation_status=None, limit=100):
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        conditions = ["s.delivery_mode='referral_activation'"]
-        params = []
-        if referral_status:
-            conditions.append("o.referral_status=?")
-            params.append(referral_status)
-        if activation_status:
-            conditions.append("o.activation_status=?")
-            params.append(activation_status)
-        where = " AND ".join(conditions)
-        cursor = await db.execute(
-            f"""
-            SELECT o.*, u.username, u.full_name, s.delivery_mode
-            FROM orders o
-            LEFT JOIN users u ON o.user_id = u.id
-            LEFT JOIN services s ON o.service_id = s.id
-            WHERE {where}
-            ORDER BY o.created_at DESC, o.id DESC
-            LIMIT ?
-            """,
-            (*params, limit),
-        )
-        rows = await cursor.fetchall()
-        return [normalize_order(r) for r in rows]
-
-
-def build_referral_deadline(days: int):
-    if not days or int(days) <= 0:
-        return None
-    return (datetime.now() + timedelta(days=int(days))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 async def set_order_receipt(order_id, file_id):
@@ -1349,7 +1090,7 @@ async def get_crm_segments():
         return segments
 
 
-# ??? SUPPORT TICKETS ???
+# ─── SUPPORT TICKETS ───
 
 async def create_ticket(user_id, username, full_name, message_text):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1405,7 +1146,7 @@ async def get_ticket_stats():
         return {"open": open_cnt, "answered": answered_cnt, "total": total, "avg_response_min": avg_response_min}
 
 
-# ??? PAYMENTS ???
+# ─── PAYMENTS ───
 
 async def create_payment(order_id, user_id, method="manual", amount=0, receipt_file_id=None, charge_id=None, payload=None):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1750,4 +1491,3 @@ async def clear_cart(user_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("DELETE FROM cart_items WHERE user_id=?", (user_id,))
         await db.commit()
-

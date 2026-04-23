@@ -192,6 +192,13 @@ TEXTS = {
         "ask_custom_quantity": "Iltimos, kerakli miqdorni raqamlarda yozib yuboring:",
         "service_desc_uz_prompt": "📝 Xizmat tavsifini kiriting (O'zbek tilida):",
         "service_desc_ru_prompt": "📝 Xizmat tavsifini kiriting (Rus tilida):",
+        "cart": "🛒 Savat",
+        "add_to_cart": "🛒 Savatga qo'shish",
+        "cart_empty": "🛒 Savatingiz bo'sh.",
+        "cart_content": "🛒 <b>Sizning savatingiz:</b>\n\n{items}\n💰 Umumiy summa: <b>{total:,} so'm</b>",
+        "cart_item": "▪️ {name} x {qty} dona = {price:,} so'm",
+        "btn_checkout": "🛍 Rasmiylashtirish",
+        "btn_clear_cart": "🗑 Savatni tozalash",
     },
     "ru": {
         "welcome": "👋 Привет, <b>{name}</b>!\n\nВыберите из меню ниже для использования наших услуг.",
@@ -378,6 +385,13 @@ TEXTS = {
         "ask_custom_quantity": "Пожалуйста, введите нужное количество цифрами:",
         "service_desc_uz_prompt": "📝 Введите описание услуги (на узбекском):",
         "service_desc_ru_prompt": "📝 Введите описание услуги (на русском):",
+        "cart": "🛒 Корзина",
+        "add_to_cart": "🛒 В корзину",
+        "cart_empty": "🛒 Ваша корзина пуста.",
+        "cart_content": "🛒 <b>Ваша корзина:</b>\n\n{items}\n💰 Итого: <b>{total:,} сум</b>",
+        "cart_item": "▪️ {name} x {qty} шт = {price:,} сум",
+        "btn_checkout": "🛍 Оформить заказ",
+        "btn_clear_cart": "🗑 Очистить корзину",
     }
 }
 

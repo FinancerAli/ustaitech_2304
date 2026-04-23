@@ -1,15 +1,35 @@
-
-# Local database files
-# Secrets and local runtime
+# ─── Secrets & Runtime ───
+.env
 *.db
-*.env
 *.log
 *.pyc
 *.sqlite
 *.sqlite3
-.env
-/local_dev_backups/
 __pycache__/
-bot.db
-opt/local_dev_backups/
 venv/
+.venv/
+
+# ─── IDE ───
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Debug / Temp scripts ───
+check_bonus.py
+fix_bonus.py
+patch_db.py
+debug_archive/
+
+# ─── OS ───
+.DS_Store
+Thumbs.db
+
+# ─── Local backups ───
+/local_dev_backups/
+opt/local_dev_backups/
+
+# ─── Node (miniapp_frontend) ───
+node_modules/
+miniapp_frontend/node_modules/
+miniapp_frontend/dist/
