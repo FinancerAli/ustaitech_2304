@@ -69,7 +69,7 @@ def lang_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="\U0001f1fa\U0001f1ff O'zbekcha", callback_data="set_lang:uz"),
-            InlineKeyboardButton(text="\U0001f1f7\U0001f1fa ???????", callback_data="set_lang:ru"),
+            InlineKeyboardButton(text="\U0001f1f7\U0001f1fa Русский", callback_data="set_lang:ru"),
         ]
     ])
 
@@ -78,7 +78,7 @@ def categories_keyboard(categories, lang="uz"):
     buttons = []
     for c in categories:
         buttons.append([InlineKeyboardButton(
-            text=f"?? {c['name']}",
+            text=f"▫️ {c['name']}",
             callback_data=f"category:{c['id']}"
         )])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -91,12 +91,12 @@ def services_keyboard(services, lang="uz", page: int = 1, total_count: int = 0, 
         stock_val = s["stock"] if "stock" in s.keys() else None
         # -1 means unlimited, don't show; 0 means out of stock; > 0 show count
         if stock_val is not None and stock_val >= 0:
-            stock_text = f" [?? {stock_val}]"
+            stock_text = f" [▫️ {stock_val}]"
         else:
             stock_text = ""
-        text_lbl = f"{s['name']}{stock_text} ? {s['price']:,} {cur}"
+        text_lbl = f"{s['name']}{stock_text} — {s['price']:,} {cur}"
         if dict(s).get("promo_active"):
-            text_lbl += f" | ?? {s['cashback_percent']}% cashback"
+            text_lbl += f" | ▫️ {s['cashback_percent']}% cashback"
         buttons.append([InlineKeyboardButton(
             text=text_lbl,
             callback_data=f"service:{s['id']}:{page}"
@@ -105,9 +105,9 @@ def services_keyboard(services, lang="uz", page: int = 1, total_count: int = 0, 
     nav_buttons = []
     q_param = f":{query}" if query else ":"
     if page > 1:
-        nav_buttons.append(InlineKeyboardButton(text="??", callback_data=f"page:{page-1}{q_param}"))
+        nav_buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"page:{page-1}{q_param}"))
     if total_count > page * 10:
-        nav_buttons.append(InlineKeyboardButton(text="??", callback_data=f"page:{page+1}{q_param}"))
+        nav_buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"page:{page+1}{q_param}"))
     
     if nav_buttons:
         buttons.append(nav_buttons)
@@ -136,7 +136,7 @@ def cart_keyboard(cart_items, lang="uz"):
             InlineKeyboardButton(text=f"{item['service_name']} ({item['quantity']})", callback_data=f"cart_noop"),
             InlineKeyboardButton(text=f"?", callback_data=f"cart_plus:{item['id']}")
         ])
-        buttons.append([InlineKeyboardButton(text=f"?? {item['service_name']}", callback_data=f"cart_del:{item['id']}")])
+        buttons.append([InlineKeyboardButton(text=f"▫️ {item['service_name']}", callback_data=f"cart_del:{item['id']}")])
     if cart_items:
         buttons.append([InlineKeyboardButton(text=t(lang, "btn_checkout"), callback_data="cart_checkout")])
         buttons.append([InlineKeyboardButton(text=t(lang, "btn_clear_cart"), callback_data="cart_clear")])
@@ -163,7 +163,7 @@ def skip_cancel_keyboard(lang="uz"):
 def payment_method_keyboard(lang="uz", supports_stars=False):
     kb = [[KeyboardButton(text=t(lang, "btn_card_payment"))]]
     if supports_stars:
-        kb.append([KeyboardButton(text="?? Telegram Stars")])
+        kb.append([KeyboardButton(text="⭐️ Telegram Stars")])
     kb.append([KeyboardButton(text=t(lang, "cancel"))])
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -175,8 +175,8 @@ def confirm_order_keyboard(order_id: int, lang="uz"):
 
 
 def referral_order_keyboard(order_id: int, lang="uz"):
-    email_text = "?? Email yuborish" if lang == "uz" else "?? ????????? email"
-    link_text = "?? Havola" if lang == "uz" else "?? ??????"
+    email_text = "📧 Email yuborish" if lang == "uz" else "📧 Отправить email"
+    link_text = "🔗 Havola" if lang == "uz" else "🔗 Ссылка"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=email_text, callback_data=f"ref_email:{order_id}")],
         [InlineKeyboardButton(text=link_text, callback_data=f"ref_link:{order_id}")],
@@ -184,10 +184,10 @@ def referral_order_keyboard(order_id: int, lang="uz"):
 
 
 def quantity_keyboard(service_id: int, lang="uz"):
-    btn_1_text = "1?? 1 dona" if lang == "uz" else "1?? 1 ??."
-    btn_3_text = "3?? 3 dona" if lang == "uz" else "3?? 3 ??."
-    btn_5_text = "5?? 5 dona" if lang == "uz" else "5?? 5 ??."
-    btn_10_text = "?? 10 dona" if lang == "uz" else "?? 10 ??."
+    btn_1_text = "1️⃣ 1 dona" if lang == "uz" else "1️⃣ 1 шт."
+    btn_3_text = "3️⃣ 3 dona" if lang == "uz" else "3️⃣ 3 шт."
+    btn_5_text = "5️⃣ 5 dona" if lang == "uz" else "5️⃣ 5 шт."
+    btn_10_text = "▫️ 10 dona" if lang == "uz" else "▫️ 10 ▫️."
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -210,12 +210,12 @@ def coupon_pick_keyboard(coupons, lang="uz"):
         scope_icon = "\U0001f310" if c["service_id"] is None else "\U0001f3af"
         buttons.append([
             InlineKeyboardButton(
-                text=f"{scope_icon} {c['code']} ? -{c['discount_percent']}%",
+                text=f"{scope_icon} {c['code']} — -{c['discount_percent']}%",
                 callback_data=f"use_coupon:{c['code']}"
             )
         ])
 
-    skip_text = "\u23ed O'tkazib yuborish" if lang == "uz" else "\u23ed ??????????"
+    skip_text = "\u23ed O'tkazib yuborish" if lang == "uz" else "\u23ed Пропустить"
     buttons.append([
         InlineKeyboardButton(text=skip_text, callback_data="use_coupon:skip")
     ])
@@ -224,44 +224,44 @@ def coupon_pick_keyboard(coupons, lang="uz"):
 
 REVIEW_TEMPLATE_TEXTS = {
     "pos_fast": {
-        "uz": "? Juda tez va qulay bo'ldi",
-        "ru": "? ??? ???? ?????? ? ??????",
+        "uz": "✅ Juda tez va qulay bo'ldi",
+        "ru": "✅ Всё было быстро и удобно",
     },
     "pos_price": {
-        "uz": "?? Narxi ham juda yaxshi ekan",
-        "ru": "?? ???? ???? ????? ??????????",
+        "uz": "▫️ Narxi ham juda yaxshi ekan",
+        "ru": "🔥 Цена тоже очень порадовала",
     },
     "pos_recommend": {
-        "uz": "?? Xizmat zo'r, tavsiya qilaman",
-        "ru": "?? ???????? ??????, ??????????",
+        "uz": "▫️ Xizmat zo'r, tavsiya qilaman",
+        "ru": "⚡ Быстрая доставка, рекомендую",
     },
     "pos_support": {
-        "uz": "?? Operator yaxshi yordam berdi",
-        "ru": "?? ???????? ?????? ?????",
+        "uz": "▫️ Operator yaxshi yordam berdi",
+        "ru": "👨‍💼 Оператор хорошо помог",
     },
     "pos_ok": {
-        "uz": "? Hammasi yaxshi ishladi",
-        "ru": "? ??? ?????? ??????",
+        "uz": "⭐ Hammasi yaxshi ishladi",
+        "ru": "⭐ Всё прошло хорошо",
     },
     "neg_delay": {
-        "uz": "? Biroz kechikdi",
-        "ru": "? ???? ??????? ?????",
+        "uz": "⏳ Biroz kechikdi",
+        "ru": "⏳ Было немного долго",
     },
     "neg_unclear": {
-        "uz": "? Yana aniqlik kerak bo'ldi",
-        "ru": "? ???????????? ?????? ?????????",
+        "uz": "❗ Yana aniqlik kerak bo'ldi",
+        "ru": "❗ Понадобилось больше уточнений",
     },
     "neg_expect": {
-        "uz": "?? Kutganimdan biroz boshqacha bo'ldi",
-        "ru": "?? ??????? ?????????? ?? ????????",
+        "uz": "▫️ Kutganimdan biroz boshqacha bo'ldi",
+        "ru": "📞 Буду рекомендовать знакомым",
     },
     "neg_retry": {
-        "uz": "?? Keyinroq yana urinib ko'raman",
-        "ru": "?? ????? ???????? ??? ???",
+        "uz": "▫️ Keyinroq yana urinib ko'raman",
+        "ru": "🔄 Попробую ещё раз",
     },
     "neg_mid": {
-        "uz": "?? O'rtacha tajriba bo'ldi",
-        "ru": "?? ??????????? ???????",
+        "uz": "▫️ O'rtacha tajriba bo'ldi",
+        "ru": "💡 Хорошие советы",
     },
 }
 
@@ -283,8 +283,8 @@ def review_templates_keyboard(order_id: int, rating: int, lang="uz"):
             )
         ])
 
-    custom_text = "?? O'z fikrimni yozaman" if lang == "uz" else "?? ?????? ???? ?????"
-    skip_text = "? O'tkazib yuborish" if lang == "uz" else "? ??????????"
+    custom_text = "✍️ O'z fikrimni yozaman" if lang == "uz" else "✍️ Напишу свой отзыв"
+    skip_text = "⏭ O'tkazib yuborish" if lang == "uz" else "⏭ Пропустить"
 
     buttons.append([
         InlineKeyboardButton(text=custom_text, callback_data=f"rate_custom:{order_id}:{rating}")
@@ -313,11 +313,10 @@ def bonus_keyboard(lang="uz"):
 
 def contact_keyboard(lang="uz"):
     op_text = t(lang, "btn_support")
-    ch_text = "?? Kanalga o?tish" if lang == "uz" else "?? ??????? ? ?????"
+    ch_text = "📺 Kanalga o'tish" if lang == "uz" else "📺 Перейти в канал"
     back_text = t(lang, "btn_back_arrow")
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=op_text, url="https://t.me/UstAiTechsupportbot")],
         [InlineKeyboardButton(text=ch_text, url="https://t.me/UstAiTech")],
         [InlineKeyboardButton(text=back_text, callback_data="back_home")]
     ])
-
