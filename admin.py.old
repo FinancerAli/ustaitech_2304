@@ -21,10 +21,6 @@ from keyboards.admin_kb import (
     category_detail_keyboard, category_attach_services_keyboard,
     confirmed_customers_keyboard, confirmed_customer_detail_keyboard,
     form_fulfilled_keyboard, referral_order_list_keyboard, referral_order_detail_keyboard,
-    ref_campaigns_admin_keyboard, ref_campaign_admin_detail_keyboard,
-    ref_campaign_participant_keyboard, delivery_mode_keyboard,
-    service_stock_type_keyboard, service_payment_type_keyboard, service_delivery_type_keyboard,
-    bonus_monitoring_keyboard
 )
 from keyboards.user_kb import main_menu, STATUS_EMOJI
 from utils.excel import generate_orders_excel
@@ -54,10 +50,10 @@ def _referral_summary_text(service: dict) -> str:
     deadline_days = int(service.get("referral_deadline_days") or 0)
     deadline_text = f"{deadline_days} kun" if deadline_days > 0 else "yo'q"
     return (
-        f"\n🎯 Referral mode: referral_activation"
-        f"\n👥 Kerakli referral: {int(service.get('required_referrals') or 0)}"
-        f"\n📧 Email kerak: {requires_email}"
-        f"\n⏳ Default deadline: {deadline_text}"
+        f"\n???? Referral mode: referral_activation"
+        f"\n???? Kerakli referral: {int(service.get('required_referrals') or 0)}"
+        f"\n???? Email kerak: {requires_email}"
+        f"\n? Default deadline: {deadline_text}"
     )
 
 
@@ -87,63 +83,30 @@ async def _build_referral_order_detail(order_id: int) -> str:
         history_lines = []
         for item in history[:10]:
             history_lines.append(
-                f"  • <code>{item['invited_user_id']}</code> | {item['status']} | {str(item['created_at'])[:16]}"
+                f"- {item['invited_user_id']} | {item['status']} | {str(item['created_at'])[:16]}"
             )
-        history_text = "\n\n📜 <b>Referral history:</b>\n" + "\n".join(history_lines)
-
-    # Progress bar
-    current = int(order.get("current_referrals") or 0)
-    required = int(order.get("required_referrals") or 0)
-    bar_filled = min(10, round(current / max(required, 1) * 10)) if required else 0
-    bar = "🟩" * bar_filled + "⬜" * (10 - bar_filled)
-
-    # Status emojis
-    ref_status = order.get("referral_status", "not_required")
-    act_status = order.get("activation_status", "pending")
-    ref_emoji = {"awaiting_referrals": "⏳", "awaiting_email": "📧", "target_met": "✅",
-                 "expired": "⏰", "cancelled": "❌"}.get(ref_status, "❓")
-    act_emoji = {"pending": "⏳", "ready": "🟢", "activated": "✅", "failed": "❌"}.get(act_status, "❓")
-
-    # Deadline warning
-    deadline_raw = order.get("referral_deadline_at")
-    if deadline_raw:
-        deadline_str = str(deadline_raw)[:16]
-        deadline_text = f"⏳ {deadline_str}"
-        if ref_status == "expired":
-            deadline_text = f"⚠️ <b>MUDDATI O'TGAN</b> ({deadline_str})"
-    else:
-        deadline_text = "belgilanmagan"
-
+        history_text = "\n\n???? Referral history:\n" + "\n".join(history_lines)
+    deadline = order.get("referral_deadline_at") or "yo'q"
     username = f"@{user['username']}" if user and user.get("username") else "nomalum"
-    fulfillment = order.get("fulfillment_status", "pending")
     return (
-        f"🎯 <b>Referral aktivatsiya</b>\n\n"
-        f"📋 Buyurtma: #{order['id']}\n"
-        f"👤 User: {username} (<code>{order['user_id']}</code>)\n"
-        f"🛒 Xizmat: {order['service_name']}\n"
-        f"📧 Email: <code>{order.get('customer_email') or '-'}</code>\n\n"
-        f"📊 <b>Progress:</b> {current} / {required}\n"
-        f"{bar}\n\n"
-        f"{ref_emoji} Referral: <b>{ref_status}</b>\n"
-        f"{act_emoji} Aktivatsiya: <b>{act_status}</b>\n"
-        f"📦 Yetkazish: <b>{fulfillment}</b>\n"
-        f"📅 Deadline: {deadline_text}\n"
-        f"🕐 Ready at: {order.get('activation_ready_at') or '-'}\n"
-        f"✅ Activated at: {order.get('activated_at') or '-'}"
+        f"???? <b>Referral aktivatsiya</b>\n\n"
+        f"Buyurtma: #{order['id']}\n"
+        f"User: {username} (<code>{order['user_id']}</code>)\n"
+        f"Xizmat: {order['service_name']}\n"
+        f"Mode: {service.get('delivery_mode', 'manual') if service else 'manual'}\n"
+        f"Email: <code>{order.get('customer_email') or '-'}</code>\n"
+        f"Progress: {order.get('current_referrals', 0)} / {order.get('required_referrals', 0)}\n"
+        f"Deadline: {deadline}\n"
+        f"Referral status: {order.get('referral_status')}\n"
+        f"Activation status: {order.get('activation_status')}\n"
+        f"Activation ready at: {order.get('activation_ready_at') or '-'}\n"
+        f"Activated at: {order.get('activated_at') or '-'}"
         f"{history_text}"
     )
 
 
-async def _ref_detail_kb(order_id: int, current_filter: str = "pending"):
-    """Build referral_order_detail_keyboard with proper status params from DB."""
-    order = await db.get_order(order_id)
-    act = order.get("activation_status", "pending") if order else "pending"
-    ref = order.get("referral_status", "awaiting_referrals") if order else "awaiting_referrals"
-    return referral_order_detail_keyboard(order_id, current_filter, activation_status=act, referral_status=ref)
-
-
 # All text values that mean "cancel" in admin FSM flows
-ADMIN_CANCEL_TEXTS = ("❌ Bekor qilish", "\u274c Bekor qilish", "▫️ Orqaga")
+ADMIN_CANCEL_TEXTS = ("? Bekor qilish", "\u274c Bekor qilish", "?????? Orqaga")
 
 
 # STATES
@@ -185,6 +148,10 @@ class EditServiceState(StatesGroup):
     required_referrals = State()
     requires_email = State()
     referral_deadline_days = State()
+
+
+class BroadcastState(StatesGroup):
+    message = State()
 
 
 class BlockState(StatesGroup):
@@ -253,22 +220,6 @@ class PromoCashbackState(StatesGroup):
     percent = State()
 
 
-class CampaignCreateState(StatesGroup):
-    name = State()
-    description = State()
-    required_referrals = State()
-    reward_type = State()
-    reward_value = State()
-    deadline = State()
-
-class CampaignEditState(StatesGroup):
-    field = State()  # which field to edit
-    value = State()  # new value
-
-class UserSearchState(StatesGroup):
-    query = State()
-
-
 # ADMIN PANEL
 
 @router.message(Command("admin"))
@@ -303,91 +254,91 @@ async def statistics(message: Message):
         f"\u2705 Tasdiqlangan: <b>{stats['confirmed']}</b>\n"
         f"\u274c Rad etilgan: <b>{stats['rejected']}</b>\n"
         f"\U0001f4b0 Daromad: <b>{stats['revenue']:,} so'm</b>\n"
-        f"💵 Bugungi daromad: <b>{stats['today_revenue']:,} so'm</b>\n"
-        f"📈 Konversiya: <b>{stats['conversion']}%</b>",
+        f"???? Bugungi daromad: <b>{stats['today_revenue']:,} so'm</b>\n"
+        f"???? Konversiya: <b>{stats['conversion']}%</b>",
         parse_mode="HTML",
     )
 
 
-@router.message(F.text == "▫️ Analitika")
+@router.message(F.text == "?????? Analitika")
 async def analytics(message: Message):
     if not is_admin(message.from_user.id):
         return
     data = await db.get_analytics()
 
     # Header
-    text = "📊 <b>Chuqur Analitika</b>\n\n"
+    text = "???? <b>Chuqur Analitika</b>\n\n"
 
     # Revenue summary
     text += (
-        "💰 <b>Daromad xulosasi:</b>\n"
-        f"  📅 Haftalik: <b>{data['week_revenue']:,} so'm</b> ({data['week_orders']} ta)\n"
-        f"  📆 Oylik: <b>{data['month_revenue']:,} so'm</b> ({data['month_orders']} ta)\n"
-        f"  💳 O'rtacha chek: <b>{data['avg_order']:,} so'm</b>\n"
-        f"  ⏰ Expired (30 kun): <b>{data['expired_count']}</b>\n\n"
+        "???? <b>Daromad xulosasi:</b>\n"
+        f"  ???? Haftalik: <b>{data['week_revenue']:,} so'm</b> ({data['week_orders']} ta)\n"
+        f"  ???? Oylik: <b>{data['month_revenue']:,} so'm</b> ({data['month_orders']} ta)\n"
+        f"  ???? O'rtacha chek: <b>{data['avg_order']:,} so'm</b>\n"
+        f"  ? Expired (30 kun): <b>{data['expired_count']}</b>\n\n"
     )
 
     # Daily trend
     if data["daily"]:
-        text += "📈 <b>Kunlik trend (7 kun):</b>\n"
+        text += "???? <b>Kunlik trend (7 kun):</b>\n"
         for d in data["daily"]:
-            bar = "▪" * min(max(1, int(d["rev"] / max(data["week_revenue"], 1) * 10)), 10)
-            text += f"  {d['d'][5:]} — <b>{d['rev']:,}</b> ({d['cnt']} ta) {bar}\n"
+            bar = "?" * min(max(1, int(d["rev"] / max(data["week_revenue"], 1) * 10)), 10)
+            text += f"  {d['d'][5:]} ? <b>{d['rev']:,}</b> ({d['cnt']} ta) {bar}\n"
         text += "\n"
 
     # Top services
     if data["top_services"]:
-        text += "⭐ <b>Top xizmatlar:</b>\n"
+        text += "??? <b>Top xizmatlar:</b>\n"
         for i, s in enumerate(data["top_services"], 1):
-            medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
-            text += f"  {medal} {s['service_name']} — {s['cnt']} ta, {s['rev']:,} so'm\n"
+            medal = ["????", "????", "????", "4??????", "5??????"][i-1]
+            text += f"  {medal} {s['service_name']} ? {s['cnt']} ta, {s['rev']:,} so'm\n"
         text += "\n"
 
     # Top customers
     if data["top_customers"]:
-        text += "👑 <b>Top mijozlar:</b>\n"
+        text += "???? <b>Top mijozlar:</b>\n"
         for i, c in enumerate(data["top_customers"], 1):
-            medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
+            medal = ["????", "????", "????", "4??????", "5??????"][i-1]
             name = c.get("full_name") or c.get("username") or str(c["user_id"])
-            text += f"  {medal} {name} — {c['cnt']} ta, {c['spent']:,} so'm\n"
+            text += f"  {medal} {name} ? {c['cnt']} ta, {c['spent']:,} so'm\n"
 
     await message.answer(text, parse_mode="HTML")
 
 
 
-@router.message(F.text == "▫️ CRM")
+@router.message(F.text == "?????? CRM")
 async def crm_segments(message: Message):
     if not is_admin(message.from_user.id):
         return
     segments = await db.get_crm_segments()
 
     labels = {
-        "vip": "💎 VIP (5+ xarid / 500K+)",
-        "active": "🟢 Faol (30 kun ichida)",
-        "new": "🆕 Yangi (buyurtmasiz)",
-        "returning": "🔄 Qaytib kelgan",
-        "one_time": "1️⃣ Bir martalik",
-        "churned": "💤 Yo'qolgan (90+ kun)",
+        "vip": "???? VIP (5+ xarid / 500K+)",
+        "active": "???? Faol (30 kun ichida)",
+        "new": "???? Yangi (buyurtmasiz)",
+        "returning": "???? Qaytib kelgan",
+        "one_time": "1?????? Bir martalik",
+        "churned": "???? Yo'qolgan (90+ kun)",
     }
 
-    text = "👥 <b>CRM Segmentatsiya</b>\n\n"
+    text = "???? <b>CRM Segmentatsiya</b>\n\n"
     total_users = sum(s["count"] for s in segments.values())
-    text += f"📊 Jami: <b>{total_users}</b> foydalanuvchi\n\n"
+    text += f"???? Jami: <b>{total_users}</b> foydalanuvchi\n\n"
 
     for key in ["vip", "active", "new", "returning", "one_time", "churned"]:
         seg = segments[key]
         pct = round(seg["count"] / max(total_users, 1) * 100, 1)
         text += f"{labels[key]}\n"
-        text += f"  👤 <b>{seg['count']}</b> ({pct}%)"
+        text += f"  ???? <b>{seg['count']}</b> ({pct}%)"
         if seg["total_spent"] > 0:
-            text += f" 💰 {seg['total_spent']:,} so'm"
+            text += f" ? {seg['total_spent']:,} so'm"
         text += "\n"
 
         # Top 3 users in segment
         top = sorted(seg["users"], key=lambda u: u["spent"], reverse=True)[:3]
         for u in top:
             name = u.get("full_name") or u.get("username") or str(u["id"])
-            text += f"    👤 {name}"
+            text += f"    ? {name}"
             if u["spent"] > 0:
                 text += f" ({u['spent']:,})"
             text += "\n"
@@ -416,33 +367,33 @@ async def pending_orders(message: Message):
             diff = now - created
             mins = int(diff.total_seconds() / 60)
             if mins < 60:
-                icon = "🟢" if mins < 15 else "🟡"
+                icon = "????" if mins < 15 else "????"
                 return f"{icon} {mins} daq"
             hours = mins // 60
             if hours < 24:
-                icon = "🟡" if hours < 4 else "🟠"
+                icon = "????" if hours < 4 else "????"
                 return f"{icon} {hours} soat"
             days = hours // 24
-            return f"🔴 {days} kun"
+            return f"???? {days} kun"
         except Exception:
-            return "❓ ❓"
+            return "? ?"
     
     await message.answer(f"\u23f3 <b>{len(orders)} ta kutilayotgan buyurtma:</b>", parse_mode="HTML")
     for o in orders:
         aging = age_label(o["created_at"])
         text = (
-            f"\U0001f514 <b>Buyurtma #{o['id']}</b> — {aging}\n"
+            f"\U0001f514 <b>Buyurtma #{o['id']}</b> ? {aging}\n"
             f"\U0001f464 {o['full_name'] or ''} @{o['username'] or 'nomalum'} (<code>{o['user_id']}</code>)\n"
             f"\U0001f6cd {o['service_name']}\n"
             f"\U0001f4b0 {o['price']:,} so'm\n"
-            f"\U0001f4dd {o['note'] or '—'}\n"
+            f"\U0001f4dd {o['note'] or '???'}\n"
             f"\U0001f4c5 {o['created_at'][:16]}"
         )
         if o["receipt_file_id"]:
             try:
                 await message.answer_photo(o["receipt_file_id"], caption=text, reply_markup=order_action_keyboard(o["id"]), parse_mode="HTML")
             except Exception:
-                await message.answer(text + "\n\n📷 Rasm topilmadi (file_id xato)", reply_markup=order_action_keyboard(o["id"]), parse_mode="HTML")
+                await message.answer(text + "\n\n???? Rasm topilmadi (file_id xato)", reply_markup=order_action_keyboard(o["id"]), parse_mode="HTML")
         else:
             await message.answer(text + "\n\n\U0001f4f8 Chek yuborilmagan", reply_markup=order_action_keyboard(o["id"]), parse_mode="HTML")
 
@@ -459,24 +410,24 @@ async def all_orders(message: Message):
         return
     text = "\U0001f4dc <b>So'nggi 50 ta buyurtma:</b>\n\n"
     for o in orders:
-        emoji = STATUS_EMOJI.get(o["status"], "❓")
+        emoji = STATUS_EMOJI.get(o["status"], "?")
         fp = o["final_price"] or o["price"]
-        text += f"{emoji} <b>#{o['id']}</b> — {o['service_name']}\n   @{o['username'] or 'nomalum'} | {fp:,} so'm | {o['created_at'][:10]}\n\n"
+        text += f"{emoji} <b>#{o['id']}</b> ??? {o['service_name']}\n   @{o['username'] or 'nomalum'} | {fp:,} so'm | {o['created_at'][:10]}\n\n"
     if len(text) > 4000:
         text = text[:4000] + "\n..."
     await message.answer(text, parse_mode="HTML")
 
 
-@router.message(F.text == "🎯 Referral aktivatsiyalar")
+@router.message(F.text == "???? Referral aktivatsiyalar")
 async def referral_activations(message: Message):
     if not is_admin(message.from_user.id):
         return
     orders = await _get_referral_orders_by_filter("pending")
     if not orders:
-        await message.answer("🎯 <b>Referral aktivatsiyalar</b> (Buyurtmalar)\n\nHozircha pending referral buyurtmalar yo'q.\n\n<i>Eslatma: Kampaniya aktivatsiyalarini ko'rish uchun \"🏆 Referral kampaniyalar\" menyusidan foydalaning!</i>", parse_mode="HTML")
+        await message.answer("Referral aktivatsiya buyurtmalari yo'q.")
         return
     await message.answer(
-        "🎯 <b>Referral aktivatsiyalar</b> (Buyurtmalar)\n\n<i>Eslatma: Kampaniya aktivatsiyalarini ko'rish uchun \"🏆 Referral kampaniyalar\" menyusidan foydalaning!</i>",
+        "???? <b>Referral aktivatsiyalar</b>",
         reply_markup=referral_order_list_keyboard(orders, "pending"),
         parse_mode="HTML",
     )
@@ -489,7 +440,7 @@ async def referral_activations_list(call: CallbackQuery):
     filter_name = call.data.split(":")[1]
     orders = await _get_referral_orders_by_filter(filter_name)
     await call.answer()
-    text = f"🎯 <b>Referral aktivatsiyalar</b>\nFilter: {filter_name}"
+    text = f"???? <b>Referral aktivatsiyalar</b>\nFilter: {filter_name}"
     if not orders:
         text += "\n\nBuyurtma topilmadi."
     await call.message.edit_text(
@@ -503,13 +454,13 @@ async def referral_activations_list(call: CallbackQuery):
 async def referral_activation_view(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         return
-    _, order_id_raw, current_filter = call.data.split(":")
+    _, _, order_id_raw, current_filter = call.data.split(":")
     order_id = int(order_id_raw)
     await call.answer()
     text = await _build_referral_order_detail(order_id)
     await call.message.edit_text(
         text,
-        reply_markup=await _ref_detail_kb(order_id, current_filter),
+        reply_markup=referral_order_detail_keyboard(order_id, current_filter),
         parse_mode="HTML",
     )
 
@@ -518,7 +469,7 @@ async def referral_activation_view(call: CallbackQuery):
 async def referral_activation_deadline(call: CallbackQuery):
     if not is_admin(call.from_user.id):
         return
-    _, order_id_raw, days_raw, current_filter = call.data.split(":")
+    _, _, order_id_raw, days_raw, current_filter = call.data.split(":")
     order_id = int(order_id_raw)
     days = int(days_raw)
     deadline_at = db.build_referral_deadline(days)
@@ -527,7 +478,7 @@ async def referral_activation_deadline(call: CallbackQuery):
     text = await _build_referral_order_detail(order_id)
     await call.message.edit_text(
         text,
-        reply_markup=await _ref_detail_kb(order_id, current_filter),
+        reply_markup=referral_order_detail_keyboard(order_id, current_filter),
         parse_mode="HTML",
     )
 
@@ -536,67 +487,40 @@ async def referral_activation_deadline(call: CallbackQuery):
 async def referral_activation_activate(call: CallbackQuery, bot: Bot):
     if not is_admin(call.from_user.id):
         return
-    _, order_id_raw, current_filter = call.data.split(":")
+    _, _, order_id_raw, current_filter = call.data.split(":")
     order_id = int(order_id_raw)
     order = await db.get_order(order_id)
     if not order:
         await call.answer("Buyurtma topilmadi.", show_alert=True)
         return
     await db.mark_referral_activated(order_id)
-    await call.answer("Aktivlashtirildi!")
+    await call.answer("Aktivlashtirildi.")
     user = await db.get_user(order["user_id"])
     user_lang = (user["language"] or "uz") if user else "uz"
     try:
         await bot.send_message(
             order["user_id"],
             (
-                "✅ Xizmatingiz aktivlashtirildi!\n\nAdmin tez orada xizmatni yetkazadi."
+                "??? Xizmatingiz tayyor.\n\nSiz yuborgan email bo'yicha aktivlashtirish amalga oshirildi."
                 if user_lang != "ru" else
-                "✅ Ваша услуга активирована!\n\nАдмин скоро доставит услугу."
+                "??? ???????? ???????????? ????????????.\n\n?????????????????? ?????????????????? ???? email, ?????????????? ???? ??????????????????."
             ),
         )
     except Exception:
         pass
-
-    # Show delivery options immediately
-    service = normalize_service(await db.get_service(order["service_id"]))
-    has_preset = bool(service and service.get("delivery_content"))
-    has_form = bool(service and service.get("form_instruction"))
-    await call.message.edit_reply_markup(reply_markup=None)
-    await call.message.reply(
-        f"✅ Buyurtma #{order_id} aktivlashtirildi.\n\n📦 Endi yetkazish usulini tanlang:",
-        reply_markup=delivery_choose_keyboard(order_id, has_preset, has_form),
+    text = await _build_referral_order_detail(order_id)
+    await call.message.edit_text(
+        text,
+        reply_markup=referral_order_detail_keyboard(order_id, current_filter),
+        parse_mode="HTML",
     )
-
-
-@router.callback_query(F.data.startswith("adm_ref_deliver:"))
-async def referral_activation_deliver(call: CallbackQuery, bot: Bot):
-    """Admin clicks 'Yetkazishni boshlash' from referral order detail."""
-    if not is_admin(call.from_user.id):
-        return
-    _, order_id_raw, current_filter = call.data.split(":")
-    order_id = int(order_id_raw)
-    order = await db.get_order(order_id)
-    if not order:
-        await call.answer("Buyurtma topilmadi.", show_alert=True)
-        return
-    service = normalize_service(await db.get_service(order["service_id"]))
-    has_preset = bool(service and service.get("delivery_content"))
-    has_form = bool(service and service.get("form_instruction"))
-    await call.answer()
-    await call.message.edit_reply_markup(reply_markup=None)
-    await call.message.reply(
-        f"📦 Buyurtma #{order_id} uchun yetkazish usulini tanlang:",
-        reply_markup=delivery_choose_keyboard(order_id, has_preset, has_form),
-    )
-
 
 
 @router.callback_query(F.data.startswith("adm_ref_cancel:"))
 async def referral_activation_cancel(call: CallbackQuery, bot: Bot):
     if not is_admin(call.from_user.id):
         return
-    _, order_id_raw, current_filter = call.data.split(":")
+    _, _, order_id_raw, current_filter = call.data.split(":")
     order_id = int(order_id_raw)
     order = await db.get_order(order_id)
     if not order:
@@ -607,14 +531,14 @@ async def referral_activation_cancel(call: CallbackQuery, bot: Bot):
     try:
         await bot.send_message(
             order["user_id"],
-            "❌ Referral aktivatsiya buyurtmangiz bekor qilindi. Savollar bo'lsa admin bilan bog'laning.",
+            "? Referral aktivatsiya buyurtmangiz bekor qilindi. Savollar bo'lsa admin bilan bog'laning.",
         )
     except Exception:
         pass
     text = await _build_referral_order_detail(order_id)
     await call.message.edit_text(
         text,
-        reply_markup=await _ref_detail_kb(order_id, current_filter),
+        reply_markup=referral_order_detail_keyboard(order_id, current_filter),
         parse_mode="HTML",
     )
 
@@ -630,8 +554,8 @@ async def confirm_order(call: CallbackQuery, bot: Bot):
     if not order:
         await call.answer("Buyurtma topilmadi!", show_alert=True)
         return
-    await db.confirm_order_for_processing(order_id)
-    await call.answer("✅ Tasdiqlandi!")
+    await db.update_order_status(order_id, "confirmed")
+    await call.answer("\u2705 Tasdiqlandi!")
     await call.message.edit_reply_markup(reply_markup=None)
 
     final = order["final_price"] or order["price"]
@@ -642,9 +566,9 @@ async def confirm_order(call: CallbackQuery, bot: Bot):
         if cashback_bonus > 0:
             await db.add_bonus_transaction(order["user_id"], order_id, cashback_bonus, f"Cashback: {promo['title']}")
             await db.mark_order_cashback_awarded(order_id)
-            cashback_text = f"\n\n🎁 Sizga <b>{promo['title']}</b> aksiyasi doirasida cashback berildi!\n🎁 <b>+{cashback_bonus:,} so'm</b> bonus hisobingizga qo'shildi."
+            cashback_text = f"\n\n???? Sizga <b>{promo['title']}</b> aksiyasi doirasida cashback berildi!\n???? <b>+{cashback_bonus:,} so'm</b> bonus hisobingizga qo'shildi."
 
-    # ❌ Immediate user-facing completion notification removed.
+    # ??? Immediate user-facing completion notification removed.
     # The final "Buyurtmangiz bajarildi" is now sent ONLY via adm_form_fulfilled or adm_deliver_std/adm_deliver_custom.
 
     # Referral order bonus: if this is buyer's first confirmed order
@@ -684,8 +608,8 @@ async def confirm_order(call: CallbackQuery, bot: Bot):
     if service and service.get("delivery_mode") == "referral_activation":
         detail_text = await _build_referral_order_detail(order_id)
         await call.message.reply(
-            f"✅ Buyurtma #{order_id} tasdiqlandi.\n\n{detail_text}",
-            reply_markup=await _ref_detail_kb(order_id, "pending"),
+            f"? Buyurtma #{order_id} tasdiqlandi.\n\n{detail_text}",
+            reply_markup=referral_order_detail_keyboard(order_id, "pending"),
             parse_mode="HTML",
         )
         return
@@ -700,22 +624,22 @@ async def confirm_order(call: CallbackQuery, bot: Bot):
         try:
             await bot.send_message(
                 order["user_id"],
-                f"🎁 <b>Sizning xizmatingiz:</b>\n\n{service['delivery_content']}",
+                f"???? <b>Sizning xizmatingiz:</b>\n\n{service['delivery_content']}",
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
             await bot.send_message(
                 order["user_id"],
-                f"✅ <b>Buyurtmangiz bajarildi!</b>\n\nBuyurtma #<b>{order_id}</b> — {order['service_name']}\n\nRahmat!",
+                f"? <b>Buyurtmangiz bajarildi!</b>\n\nBuyurtma #<b>{order_id}</b> ? {order['service_name']}\n\nRahmat!",
                 parse_mode="HTML",
             )
         except Exception:
             pass
         cashback_text_admin = ""
         if cashback_text:
-            cashback_text_admin = f"\n🎁 Cashback berildi."
+            cashback_text_admin = f"\n???? Cashback berildi."
         await call.message.reply(
-            f"✅ Buyurtma #{order_id} tasdiqlandi.\n🧾 Auto yetkazish yuborildi.{cashback_text_admin}"
+            f"? Buyurtma #{order_id} tasdiqlandi.\n???? Auto yetkazish yuborildi.{cashback_text_admin}"
         )
         await _send_review_request(bot, order_id, order["user_id"], order["service_name"])
         asyncio.create_task(_delayed_review_request(bot, order_id, order["user_id"], order["service_name"]))
@@ -764,15 +688,15 @@ async def _delayed_review_request(bot: Bot, order_id: int, user_id: int, service
         lang = (user["language"] or "uz") if user else "uz"
         if lang == "uz":
             text = (
-                f"⭐ <b>Sizning fikringiz muhim!</b>\n\n"
-                f"🛍 {service_name} xizmatidan foydalandingizmi?\n"
-                f"Iltimos, baholang — bu boshqa mijozlarga yordam beradi!"
+                f"??? <b>Sizning fikringiz muhim!</b>\n\n"
+                f"???? {service_name} xizmatidan foydalandingizmi?\n"
+                f"Iltimos, baholang ??? bu boshqa mijozlarga yordam beradi!"
             )
         else:
             text = (
-                f"⭐ <b>Ваше мнение важно!</b>\n\n"
-                f"🛍 Вы воспользовались услугой {service_name}?\n"
-                f"Пожалуйста, оцените — это поможет другим клиентам!"
+                f"??? <b>???????? ???????????? ??????????!</b>\n\n"
+                f"???? ???? ?????????????????????????????? ?????????????? {service_name}?\n"
+                f"????????????????????, ?????????????? ??? ?????? ?????????????? ???????????? ????????????????!"
             )
         await bot.send_message(
             user_id, text,
@@ -801,34 +725,34 @@ async def deliver_standard(call: CallbackQuery, bot: Bot, state: FSMContext):
 
     if user_lang == "ru":
         followup_text = (
-            "📋 Пожалуйста, отправьте ответ, указанный в инструкции.\n"
-            "Допустимо: текст, .txt или .json файл.\n\n"
-            "Фото и другие типы файлов не принимаются.\n"
-            "Если информация неполная или в неверном формате, бот попросит отправить заново."
+            "???? ????????????????????, ?????????????????? ??????????, ?????????????????? ?? ????????????????????.\n"
+            "??????????????????: ??????????, .txt ?????? .json ????????.\n\n"
+            "???????? ?? ???????????? ???????? ???????????? ???? ??????????????????????.\n"
+            "???????? ???????????????????? ???????????????? ?????? ?? ???????????????? ??????????????, ?????? ???????????????? ?????????????????? ????????????."
         )
         admin_wait_text = (
-            f"✅ Заказ #{order_id}: стандартная инструкция отправлена.\n"
-            "📥 Теперь ожидается ответ клиента в виде текста / .txt / .json."
+            f"??? ?????????? #{order_id}: ?????????????????????? ???????????????????? ????????????????????.\n"
+            "???? ???????????? ?????????????????? ?????????? ?????????????? ?? ???????? ???????????? / .txt / .json."
         )
     else:
         followup_text = (
-            "📋 Iltimos, qo'llanmada so'ralgan ma'lumotlarni yuboring.\n"
+            "???? Iltimos, qo?llanmada so?ralgan ma?lumotlarni yuboring.\n"
             "Qabul qilinadi: matn, .txt yoki .json fayl.\n\n"
             "Rasm va boshqa fayl turlari qabul qilinmaydi.\n"
-            "Ma’lumot qo‘llanmaga mos bo‘lmasa, noto‘liq bo‘lsa yoki noto‘g‘ri formatda yuborilsa, qayta yuborish so‘raladi."
+            "Ma???lumot qo???llanmaga mos bo???lmasa, noto???liq bo???lsa yoki noto???g???ri formatda yuborilsa, qayta yuborish so???raladi."
         )
         admin_wait_text = (
-            f"✅ Buyurtma #{order_id}: standart qo‘llanma yuborildi.\n"
-            "📥 Endi mijozning matn / .txt / .json javobi kutilmoqda."
+            f"??? Buyurtma #{order_id}: standart qo???llanma yuborildi.\n"
+            "???? Endi mijozning matn / .txt / .json javobi kutilmoqda."
         )
 
     await call.answer()
     await call.message.edit_reply_markup(reply_markup=None)
-    await db.update_fulfillment_status(order_id, "processing")
+    await db.update_fulfillment_status(order_id, "delivered")
 
     await bot.send_message(
         order["user_id"],
-        f"🎁 <b>Sizning xizmatingiz:</b>\n\n{service['delivery_content']}",
+        f"???? <b>Sizning xizmatingiz:</b>\n\n{service['delivery_content']}",
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
@@ -857,9 +781,9 @@ def _build_keyguide_message(key_text: str, delivery_content: str) -> str:
     body = (delivery_content or "").strip()
 
     parts = [
-        "✅ Buyurtmangiz tasdiqlandi.",
+        "? Buyurtmangiz tasdiqlandi.",
         "",
-        "🔑 Siz uchun ajratilgan key / ma'lumot:",
+        "???? Siz uchun ajratilgan key / ma?lumot:",
         f"<code>{safe_key}</code>",
     ]
 
@@ -868,7 +792,7 @@ def _build_keyguide_message(key_text: str, delivery_content: str) -> str:
 
     parts.extend([
         "",
-        "ℹ️ Savol tug'ilsa, shu chat orqali bizga yozishingiz mumkin."
+        "? Savol tug?ilsa, shu chat orqali bizga yozishingiz mumkin."
     ])
 
     return "\n".join(parts)
@@ -886,7 +810,7 @@ async def deliver_keyguide_start(call: CallbackQuery, state: FSMContext):
 
     service = await db.get_service(order["service_id"])
     if not service or not service["delivery_content"]:
-    	await call.answer("Bu xizmat uchun qo'llanma shabloni topilmadi.", show_alert=True)
+    	await call.answer("Bu xizmat uchun qo?llanma shabloni topilmadi.", show_alert=True)
     	return
 
     delivery_content = service["delivery_content"].strip()
@@ -902,8 +826,8 @@ async def deliver_keyguide_start(call: CallbackQuery, state: FSMContext):
     await call.answer()
     await call.message.edit_reply_markup(reply_markup=None)
     await call.message.answer(
-        f"🧾 Buyurtma #{order_id} uchun key yuboring.\n\n"
-        "Bot uni ushbu xizmatning standart qo'llanmasi bilan birga mijozga yuboradi.",
+        f"???? Buyurtma #{order_id} uchun key yuboring.\n\n"
+        "Bot uni ushbu xizmatning standart qo?llanmasi bilan birga mijozga yuboradi.",
         reply_markup=cancel_keyboard(),
     )
 
@@ -913,9 +837,6 @@ async def deliver_custom_start(call: CallbackQuery, state: FSMContext):
         return
     order_id = int(call.data.split(":")[1])
     order = await db.get_order(order_id)
-    if not order:
-        await call.answer("Buyurtma topilmadi.", show_alert=True)
-        return
     await state.update_data(deliver_order_id=order_id, deliver_user_id=order["user_id"],
                             deliver_service_name=order["service_name"])
     await state.set_state(DeliveryCustomState.message)
@@ -923,7 +844,7 @@ async def deliver_custom_start(call: CallbackQuery, state: FSMContext):
     await call.message.edit_reply_markup(reply_markup=None)
     await call.message.answer(
         f"\u270f\ufe0f Buyurtma #{order_id} uchun individual xabar yozing\n"
-        "(kalit, link, qo'llanma — istaganingizni):",
+        "(kalit, link, qo'llanma ??? istaganingizni):",
         reply_markup=cancel_keyboard(),
     )
 @router.message(DeliveryKeyGuideState.key)
@@ -936,7 +857,7 @@ async def deliver_keyguide_send(message: Message, state: FSMContext, bot: Bot):
     key_text = (message.text or "").strip()
     if not key_text:
         await message.answer(
-            "❌ Key bo'sh bo'lmasin. Qayta yuboring.",
+            "? Key bo?sh bo?lmasin. Qayta yuboring.",
             reply_markup=cancel_keyboard(),
         )
         return
@@ -952,13 +873,12 @@ async def deliver_keyguide_send(message: Message, state: FSMContext, bot: Bot):
     try:
         await bot.send_message(
             data["keyguide_user_id"],
-            f"🎁 <b>Sizning xizmatingiz:</b>\n\n{final_text}",
+            f"???? <b>Sizning xizmatingiz:</b>\n\n{final_text}",
             parse_mode="HTML",
         )
 
-        await db.update_fulfillment_status(data["keyguide_order_id"], "delivered")
         await message.answer(
-            "✅ Key + qo'llanma mijozga yuborildi!",
+            "? Key + qo?llanma mijozga yuborildi!",
             reply_markup=admin_menu(),
         )
 
@@ -971,7 +891,7 @@ async def deliver_keyguide_send(message: Message, state: FSMContext, bot: Bot):
 
     except Exception as e:
         await message.answer(
-            f"❌ Xatolik: {e}",
+            f"? Xatolik: {e}",
             reply_markup=admin_menu(),
         )
 
@@ -1003,15 +923,9 @@ async def deliver_skip(call: CallbackQuery, bot: Bot):
         return
     order_id = int(call.data.split(":")[1])
     order = await db.get_order(order_id)
-    if not order:
-        await call.answer("Buyurtma topilmadi.", show_alert=True)
-        return
-    await db.update_fulfillment_status(order_id, "delivered")
     await call.message.edit_reply_markup(reply_markup=None)
-    await call.answer("Botdan tashqari bajarildi.")
+    await call.answer("O'tkazib yuborildi.")
     await _send_review_request(bot, order_id, order["user_id"], order["service_name"])
-    asyncio.create_task(_delayed_review_request(bot, order_id, order["user_id"], order["service_name"]))
-    await call.message.reply(f"✅ Buyurtma #{order_id} botdan tashqari bajarildi deb yopildi.")
 
 
 @router.callback_query(F.data.startswith("adm_deliver_form:"))
@@ -1035,25 +949,25 @@ async def deliver_form(call: CallbackQuery, bot: Bot, state: FSMContext):
 
     if user_lang == "ru":
         system_note = (
-            "📋 Пожалуйста, отправьте ответ по форме.\n"
-            "Принимается: обычный текст, .txt или .json файл.\n\n"
-            "Фото, видео, аудио и другие файлы не принимаются.\n"
-            "Если ответ некорректен, бот попросит повторить."
+            "???? ????????????????????, ?????????????????? ?????????? ???? ??????????.\n"
+            "??????????????????????: ?????????????? ??????????, .txt ?????? .json ????????.\n\n"
+            "????????, ??????????, ?????????? ?? ???????????? ?????????? ???? ??????????????????????.\n"
+            "???????? ?????????? ??????????????????????, ?????? ???????????????? ??????????????????."
         )
         admin_wait_text = (
-            f"✅ Buyurtma #{order_id}: forma ko'rsatmasi yuborildi.\n"
-            "📥 Mijozning matn / .txt / .json javobi kutilmoqda."
+            f"??? Buyurtma #{order_id}: forma ko'rsatmasi yuborildi.\n"
+            "???? Mijozning matn / .txt / .json javobi kutilmoqda."
         )
     else:
         system_note = (
-            "📋 Iltimos, forma bo'yicha javobingizni yuboring.\n"
+            "???? Iltimos, forma bo'yicha javobingizni yuboring.\n"
             "Qabul qilinadi: oddiy matn, .txt yoki .json fayl.\n\n"
             "Rasm, video, audio va boshqa fayl turlari qabul qilinmaydi.\n"
             "Noto'g'ri turdagi xabar yuborilsa, qayta so'raladi."
         )
         admin_wait_text = (
-            f"✅ Buyurtma #{order_id}: forma ko'rsatmasi yuborildi.\n"
-            "📥 Mijozning matn / .txt / .json javobi kutilmoqda."
+            f"??? Buyurtma #{order_id}: forma ko'rsatmasi yuborildi.\n"
+            "???? Mijozning matn / .txt / .json javobi kutilmoqda."
         )
 
     await call.answer()
@@ -1062,7 +976,7 @@ async def deliver_form(call: CallbackQuery, bot: Bot, state: FSMContext):
     # Send the service-specific form instruction to user
     await bot.send_message(
         order["user_id"],
-        f"📋 <b>Forma so'rovi</b>\n\n{service['form_instruction']}",
+        f"???? <b>Forma so'rovi</b>\n\n{service['form_instruction']}",
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
@@ -1101,7 +1015,7 @@ async def adm_form_fulfilled(call: CallbackQuery, bot: Bot):
         await call.answer("Buyurtma topilmadi!", show_alert=True)
         return
 
-    await call.answer("✅ Bajarildi deb belgilandi!")
+    await call.answer("??? Bajarildi deb belgilandi!")
     await call.message.edit_reply_markup(reply_markup=None)
     await db.update_fulfillment_status(order_id, "delivered")
 
@@ -1109,7 +1023,7 @@ async def adm_form_fulfilled(call: CallbackQuery, bot: Bot):
     try:
         await bot.send_message(
             user_id,
-            f"✅ <b>Buyurtmangiz bajarildi!</b>\n\nBuyurtma #<b>{order_id}</b> — {order['service_name']}\n\nRahmat!",
+            f"??? <b>Buyurtmangiz bajarildi!</b>\n\nBuyurtma #<b>{order_id}</b> ??? {order['service_name']}\n\nRahmat!",
             parse_mode="HTML",
         )
     except Exception:
@@ -1118,7 +1032,7 @@ async def adm_form_fulfilled(call: CallbackQuery, bot: Bot):
     # Trigger rating flow
     await _send_review_request(bot, order_id, user_id, order["service_name"])
     asyncio.create_task(_delayed_review_request(bot, order_id, user_id, order["service_name"]))
-    await call.message.reply(f"✅ Buyurtma #{order_id} bajarildi deb belgilandi. Mijozga baholash so'rovi yuborildi.")
+    await call.message.reply(f"??? Buyurtma #{order_id} bajarildi deb belgilandi. Mijozga baholash so'rovi yuborildi.")
 
 
 @router.callback_query(F.data.startswith("adm_reject:"))
@@ -1232,8 +1146,8 @@ async def adm_user_detail(call: CallbackQuery):
         await call.answer("Foydalanuvchi topilmadi!", show_alert=True)
         return
 
-    username = f"@{user['username']}" if user["username"] else "—"
-    full_name = user["full_name"] or "—"
+    username = f"@{user['username']}" if user["username"] else "???"
+    full_name = user["full_name"] or "???"
     blocked = "Ha" if user["is_blocked"] else "Yo'q"
     bonus = user["bonus_balance"] or 0
 
@@ -1253,63 +1167,6 @@ async def adm_user_detail(call: CallbackQuery):
         parse_mode="HTML",
     )
 
-
-@router.callback_query(F.data == "adm_user_search")
-async def adm_user_search_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    await call.answer()
-    await state.set_state(UserSearchState.query)
-    await call.message.answer(
-        "🔍 <b>Foydalanuvchini qidirish</b>\n\n"
-        "Ism, username yoki ID kiriting:",
-        reply_markup=cancel_keyboard(),
-        parse_mode="HTML",
-    )
-
-
-@router.message(UserSearchState.query)
-async def adm_user_search_result(message: Message, state: FSMContext):
-    if message.text in ADMIN_CANCEL_TEXTS:
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
-        return
-    query = (message.text or "").strip().lower()
-    if not query:
-        await message.answer("❗ Bo'sh qidiruv. Qaytadan kiriting:")
-        return
-
-    users = await db.get_all_users()
-    results = []
-    for u in users:
-        uid_str = str(u["id"])
-        uname = (u["username"] or "").lower()
-        fname = (u["full_name"] or "").lower()
-        if query in uid_str or query in uname or query in fname or (query.startswith("@") and query[1:] in uname):
-            results.append(u)
-
-    await state.clear()
-    if not results:
-        await message.answer("❌ Hech narsa topilmadi.", reply_markup=admin_menu())
-        return
-
-    if len(results) > 20:
-        results = results[:20]
-
-    buttons = []
-    for u in results:
-        name = (u["full_name"] or "").strip()
-        uname = f"@{u['username']}" if u["username"] else f"ID {u['id']}"
-        label = f"{name} ({uname})" if name else uname
-        if len(label) > 50:
-            label = label[:47] + "..."
-        buttons.append([InlineKeyboardButton(text=label, callback_data=f"adm_user:{u['id']}")])
-
-    await message.answer(
-        f"🔍 <b>Natijalar:</b> {len(results)} ta topildi",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        parse_mode="HTML",
-    )
 
 @router.callback_query(F.data.startswith("adm_user_msg:"))
 async def adm_user_msg_start(call: CallbackQuery, state: FSMContext):
@@ -1337,7 +1194,7 @@ async def confirmed_customers_list(message: Message):
     total = await db.get_confirmed_customers_count()
 
     if not customers:
-        await message.answer("✅ Hozircha tasdiqlangan mijozlar yo'q.")
+        await message.answer("??? Hozircha tasdiqlangan mijozlar yo'q.")
         return
 
     await message.answer(
@@ -1378,13 +1235,13 @@ async def confirmed_customer_detail(call: CallbackQuery):
         await call.answer("Mijoz topilmadi!", show_alert=True)
         return
 
-    username = f"@{c['username']}" if c["username"] else "—"
-    full_name = (c["full_name"] or "").strip() or "—"
+    username = f"@{c['username']}" if c["username"] else "???"
+    full_name = (c["full_name"] or "").strip() or "???"
     total_spent = c["total_spent"] or 0
     confirmed_orders_count = c["confirmed_orders_count"] or 0
     bonus = c["bonus_balance"] or 0
-    last_confirmed_at = c["last_confirmed_at"][:16] if c["last_confirmed_at"] else "—"
-    last_service_name = c["last_service_name"] or "—"
+    last_confirmed_at = c["last_confirmed_at"][:16] if c["last_confirmed_at"] else "???"
+    last_service_name = c["last_service_name"] or "???"
     last_order_id = c["last_order_id"]
 
     text_detail = (
@@ -1422,7 +1279,7 @@ async def admin_reask_review(call: CallbackQuery, bot: Bot):
         return
 
     await _send_review_request(bot, order_id, user_id, order["service_name"])
-    await call.answer("⭐ Mijozga qayta baholash so'rovi yuborildi!", show_alert=True)
+    await call.answer("??? Mijozga qayta baholash so'rovi yuborildi!", show_alert=True)
 
 
 # BLOCK / UNBLOCK
@@ -1457,7 +1314,34 @@ async def block_execute(message: Message, state: FSMContext):
     await message.answer(f"{status_text}: {user['full_name']} (<code>{abs(uid)}</code>)", reply_markup=admin_menu(), parse_mode="HTML")
 
 
-# BROADCAST (eski sodda broadcast o'chirildi, pastdagi to'liq variant ishlatiladi)
+# BROADCAST
+
+@router.message(F.text == "\U0001f4e2 Xabar yuborish")
+async def broadcast_start(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.set_state(BroadcastState.message)
+    await message.answer("\U0001f4e2 Xabar yozing:", reply_markup=cancel_keyboard())
+
+
+@router.message(BroadcastState.message)
+async def broadcast_send(message: Message, state: FSMContext, bot: Bot):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+    await state.clear()
+    users = await db.get_all_users()
+    sent, failed = 0, 0
+    for u in users:
+        if u["is_blocked"]:
+            continue
+        try:
+            await bot.copy_message(chat_id=u["id"], from_chat_id=message.chat.id, message_id=message.message_id)
+            sent += 1
+        except Exception:
+            failed += 1
+    await message.answer(f"\U0001f4e2 Yuborildi!\n\u2705 Muvaffaqiyatli: {sent}\n\u274c Yuborilmadi: {failed}", reply_markup=admin_menu())
 
 
 # SERVICES MANAGEMENT
@@ -1497,10 +1381,10 @@ async def adm_service_detail(call: CallbackQuery):
     if s["delivery_content"]:
         preview = s["delivery_content"][:60] + ("..." if len(s["delivery_content"]) > 60 else "")
         delivery_preview = f"\n\U0001f4e6 Yetkazish: <code>{preview}</code>"
-    auto_deliver_text = "\n⚡ Auto yetkazish: ✅" if s.get("auto_deliver") else ""
-    mode_text = f"\n▫️ Mode: {_service_mode_label(s.get('delivery_mode'))}"
+    auto_deliver_text = "\n??? Auto yetkazish: ???" if s.get("auto_deliver") else ""
+    mode_text = f"\n?????? Mode: {_service_mode_label(s.get('delivery_mode'))}"
     referral_text = _referral_summary_text(s)
-    text = f"\U0001f539 <b>{s['name']}</b>\n{s['description'] or '—'}\n\U0001f4b0 {s['price']:,} so'm\n\U0001f4e6 Qoldiq: {s['stock']} ta\nHolat: {status}{rating_text}{delivery_preview}{auto_deliver_text}{mode_text}{referral_text}"
+    text = f"\U0001f539 <b>{s['name']}</b>\n{s['description'] or '?'}\n\U0001f4b0 {s['price']:,} so'm\n\U0001f4e6 Qoldiq: {s['stock']} ta\nHolat: {status}{rating_text}{delivery_preview}{auto_deliver_text}{mode_text}{referral_text}"
     await call.message.edit_text(text, reply_markup=service_admin_detail(service_id, s["active"], bool(s["delivery_content"]), bool(s.get("form_instruction")), bool(s.get("auto_deliver"))), parse_mode="HTML")
 
 
@@ -1578,7 +1462,7 @@ async def adm_set_form_instruction_save(message: Message, state: FSMContext):
     if form_instruction:
         await message.answer(
             "\u2705 Forma ko'rsatmasi saqlandi!\n\n"
-            "Bundan keyin admin '▫️ Forma yuborish' tugmasini bossagina mijozga ko'rsatiladi.",
+            "Bundan keyin admin '?????? Forma yuborish' tugmasini bossagina mijozga ko'rsatiladi.",
             reply_markup=admin_menu(),
         )
     else:
@@ -1621,11 +1505,11 @@ async def adm_add_name(message: Message, state: FSMContext):
         return
     name = message.text.strip()
     if not name or name == "-":
-        await message.answer("❗ Nom bo'sh yoki '-' bo'lishi mumkin emas. Qaytadan kiriting:")
+        await message.answer("??? Nom bo'sh yoki '-' bo'lishi mumkin emas. Qaytadan kiriting:")
         return
-    await state.update_data(name=name, description_uz="", description_ru="", image_file_id=None, delivery_content=None)
-    await state.set_state(AddServiceState.price)
-    await message.answer("💰 Narxni so'mda kiriting:\n\nMasalan: 48000", reply_markup=cancel_keyboard())
+    await state.update_data(name=name)
+    await state.set_state(AddServiceState.description_uz)
+    await message.answer("?????? Xizmat tavsifini kiriting (O'zbek tilida):")
 
 
 @router.message(AddServiceState.description_uz)
@@ -1636,7 +1520,7 @@ async def adm_add_desc_uz(message: Message, state: FSMContext):
         return
     await state.update_data(description_uz="" if message.text == "-" else message.text)
     await state.set_state(AddServiceState.description_ru)
-    await message.answer("▫️ Xizmat tavsifini kiriting (Rus tilida):")
+    await message.answer("?????? Xizmat tavsifini kiriting (Rus tilida):")
 
 
 @router.message(AddServiceState.description_ru)
@@ -1661,7 +1545,7 @@ async def adm_add_price(message: Message, state: FSMContext):
         return
     await state.update_data(price=int(message.text))
     await state.set_state(AddServiceState.stock)
-    await message.answer("📦 Qoldiq turini tanlang:\n\n♾ Cheksiz — limit yo'q\n🔢 Aniq dona — son kiritiladi", reply_markup=service_stock_type_keyboard())
+    await message.answer("\U0001f4e6 Qoldiq soni (agar cheksiz bo'lsa 99999 deb yozing):")
 
 
 @router.message(AddServiceState.stock)
@@ -1670,28 +1554,12 @@ async def adm_add_stock(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
-
-    text = (message.text or "").strip()
-    data = await state.get_data()
-
-    if text == "♾ Cheksiz" or text.lower() in {"cheksiz", "unlimited", "-1", "99999"}:
-        await state.update_data(stock=-1, stock_mode=None)
-        await state.set_state(AddServiceState.supports_stars)
-        await message.answer("💳 To'lov usulini tanlang:", reply_markup=service_payment_type_keyboard())
+    if not message.text.isdigit():
+        await message.answer("\u2757 Faqat raqam:")
         return
-
-    if text == "🔢 Aniq dona":
-        await state.update_data(stock_mode="finite")
-        await message.answer("🔢 Nechta mavjud? Faqat raqam kiriting:", reply_markup=cancel_keyboard())
-        return
-
-    if not text.isdigit():
-        await message.answer("❗ Qoldiq uchun ♾ Cheksiz, 🔢 Aniq dona yoki raqam kiriting:", reply_markup=service_stock_type_keyboard())
-        return
-
-    await state.update_data(stock=int(text), stock_mode=None)
-    await state.set_state(AddServiceState.supports_stars)
-    await message.answer("💳 To'lov usulini tanlang:", reply_markup=service_payment_type_keyboard())
+    await state.update_data(stock=int(message.text))
+    await state.set_state(AddServiceState.image)
+    await message.answer("\U0001f5bc Rasm yuboring yoki '-' bosing:")
 
 
 @router.message(AddServiceState.image)
@@ -1722,7 +1590,7 @@ async def adm_add_delivery(message: Message, state: FSMContext):
     delivery_content = None if message.text.strip() == "-" else message.text.strip()
     await state.update_data(delivery_content=delivery_content)
     await state.set_state(AddServiceState.stars_price)
-    await message.answer("⭐️ Telegram Stars narxini kiriting (ixtiyoriy, 0 = o'chirish):", reply_markup=cancel_keyboard())
+    await message.answer("?????? Telegram Stars narxini kiriting (ixtiyoriy, 0 = o'chirish):", reply_markup=cancel_keyboard())
 
 
 @router.message(AddServiceState.stars_price)
@@ -1732,11 +1600,11 @@ async def adm_add_stars_price(message: Message, state: FSMContext):
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
     if not message.text.isdigit():
-        await message.answer("❗️ Faqat musbat butun son kiriting:")
+        await message.answer("?????? Faqat musbat butun son kiriting:")
         return
-    await state.update_data(stars_price=int(message.text), supports_stars=1)
-    await state.set_state(AddServiceState.delivery_mode)
-    await message.answer("🚚 Xizmat qanday bajariladi?", reply_markup=service_delivery_type_keyboard())
+    await state.update_data(stars_price=int(message.text))
+    await state.set_state(AddServiceState.supports_stars)
+    await message.answer("Telegram Stars orqali to'lovni yoqasizmi? (1 = Ha, 0 = Yo'q):", reply_markup=cancel_keyboard())
 
 
 @router.message(AddServiceState.supports_stars)
@@ -1745,21 +1613,23 @@ async def adm_add_supports_stars(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
-
-    text = (message.text or "").strip()
-    if text in {"💳 Manual", "0"}:
-        await state.update_data(supports_stars=0, stars_price=0)
-        await state.set_state(AddServiceState.delivery_mode)
-        await message.answer("🚚 Xizmat qanday bajariladi?", reply_markup=service_delivery_type_keyboard())
+    if message.text not in ["0", "1"]:
+        await message.answer("?????? Faqat 1 yoki 0 ni kiriting:")
         return
-
-    if text in {"⭐ Stars", "💳⭐ Ikkalasi", "1"}:
-        await state.update_data(supports_stars=1)
+    supports_stars = int(message.text)
+    data = await state.get_data()
+    stars_price = data.get("stars_price", 0)
+    if supports_stars == 1 and stars_price <= 0:
+        await message.answer("??? Telegram Stars yoqish uchun narx > 0 bo'lishi kerak.\n?????? Avval Stars narxini to'g'ri kiriting.")
         await state.set_state(AddServiceState.stars_price)
-        await message.answer("⭐️ Telegram Stars narxini kiriting:\n\nMasalan: 192", reply_markup=cancel_keyboard())
+        await message.answer("?????? Telegram Stars narxini qaytadan kiriting:", reply_markup=cancel_keyboard())
         return
-
-    await message.answer("❗ To'lov usulini tugmalardan tanlang:", reply_markup=service_payment_type_keyboard())
+    await state.update_data(supports_stars=supports_stars)
+    await state.set_state(AddServiceState.delivery_mode)
+    await message.answer(
+        "?????? Delivery mode kiriting:\nmanual\nkey_auto\nform_required\nreferral_activation",
+        reply_markup=cancel_keyboard(),
+    )
 
 
 async def _finish_add_service(message: Message, state: FSMContext):
@@ -1782,20 +1652,12 @@ async def _finish_add_service(message: Message, state: FSMContext):
     if data.get("delivery_mode") == "referral_activation":
         email_label = "ha" if data.get("requires_email") else "yo'q"
         referral_status = (
-            f"\n▫️ Referral: {data.get('required_referrals', 0)} ta"
+            f"\n?????? Referral: {data.get('required_referrals', 0)} ta"
             f" | Email: {email_label}"
             f" | Deadline: {data.get('referral_deadline_days', 0) or 0}"
         )
-    stock_value = data.get("stock", 0)
-    stock_text = "♾ Cheksiz" if stock_value == -1 else f"{stock_value} dona"
-    stars_text = f"\n⭐ Stars: {data.get('stars_price', 0)} XTR" if data.get("supports_stars") else "\n⭐ Stars: o'chirilgan"
     await message.answer(
-        f"✅ Xizmat qo'shildi #{service_id}: <b>{data['name']}</b>\n"
-        f"💰 Narx: <b>{data['price']:,} so'm</b>\n"
-        f"📦 Qoldiq: <b>{stock_text}</b>{stars_text}\n"
-        f"🚚 Delivery: <code>{data.get('delivery_mode', 'manual')}</code>\n"
-        f"{delivery_status}{referral_status}\n\n"
-        "Kengaytirilgan sozlamalar uchun: 🛍 Xizmatlar → xizmatni tanlang → Tahrirlash / Forma / Yetkazish.",
+        f"\u2705 Xizmat qo'shildi #{service_id}: <b>{data['name']}</b> ? {data['price']:,} so'm\n{delivery_status}{referral_status}",
         reply_markup=admin_menu(),
         parse_mode="HTML",
     )
@@ -1807,23 +1669,10 @@ async def adm_add_delivery_mode(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
-
-    text = (message.text or "").strip()
-    delivery_map = {
-        "📋 Manual (qo'lda)": "manual",
-        "⚡ Avtomatik (shablon)": "key_auto",
-        "🧾 Forma to'ldirish": "form_required",
-        "🎯 Referral aktivatsiya": "referral_activation",
-        "manual": "manual",
-        "key_auto": "key_auto",
-        "form_required": "form_required",
-        "referral_activation": "referral_activation",
-    }
-    delivery_mode = delivery_map.get(text)
-    if not delivery_mode:
-        await message.answer("❌ Tugmalardan birini tanlang:", reply_markup=service_delivery_type_keyboard())
+    delivery_mode = (message.text or "").strip()
+    if not _is_valid_delivery_mode(delivery_mode):
+        await message.answer("? Quyidagilardan birini kiriting: manual, key_auto, form_required, referral_activation")
         return
-
     await state.update_data(
         delivery_mode=delivery_mode,
         required_referrals=0,
@@ -1832,9 +1681,8 @@ async def adm_add_delivery_mode(message: Message, state: FSMContext):
     )
     if delivery_mode == "referral_activation":
         await state.set_state(AddServiceState.required_referrals)
-        await message.answer("▫️ Kerakli referral sonini kiriting:", reply_markup=cancel_keyboard())
+        await message.answer("?????? Kerakli referral sonini kiriting:", reply_markup=cancel_keyboard())
         return
-
     await _finish_add_service(message, state)
 
 
@@ -1845,11 +1693,11 @@ async def adm_add_required_referrals(message: Message, state: FSMContext):
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
     if not (message.text or "").isdigit() or int(message.text) <= 0:
-        await message.answer("❌ Musbat butun son kiriting:")
+        await message.answer("? Musbat butun son kiriting:")
         return
     await state.update_data(required_referrals=int(message.text))
     await state.set_state(AddServiceState.requires_email)
-    await message.answer("▫️ Email majburiymi? (1 = Ha, 0 = Yo'q):", reply_markup=cancel_keyboard())
+    await message.answer("?????? Email majburiymi? (1 = Ha, 0 = Yo'q):", reply_markup=cancel_keyboard())
 
 
 @router.message(AddServiceState.requires_email)
@@ -1859,11 +1707,11 @@ async def adm_add_requires_email(message: Message, state: FSMContext):
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
     if message.text not in ["0", "1"]:
-        await message.answer("❗️ Faqat 1 yoki 0 ni kiriting:")
+        await message.answer("?????? Faqat 1 yoki 0 ni kiriting:")
         return
     await state.update_data(requires_email=int(message.text))
     await state.set_state(AddServiceState.referral_deadline_days)
-    await message.answer("ℹ️ Referral deadline days kiriting (0, 7, 14, 30):", reply_markup=cancel_keyboard())
+    await message.answer("? Referral deadline days kiriting (0, 7, 14, 30):", reply_markup=cancel_keyboard())
 
 
 @router.message(AddServiceState.referral_deadline_days)
@@ -1873,7 +1721,7 @@ async def adm_add_referral_deadline_days(message: Message, state: FSMContext):
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
     if message.text not in ["0", "7", "14", "30"]:
-        await message.answer("❌ Faqat 0, 7, 14 yoki 30 kiriting:")
+        await message.answer("? Faqat 0, 7, 14 yoki 30 kiriting:")
         return
     await state.update_data(referral_deadline_days=int(message.text))
     await _finish_add_service(message, state)
@@ -1885,90 +1733,145 @@ async def adm_add_referral_deadline_days(message: Message, state: FSMContext):
 async def adm_edit_start(call: CallbackQuery, state: FSMContext):
     service_id = int(call.data.split(":")[1])
     await call.answer()
-    s = normalize_service(await db.get_service(service_id))
-    if not s:
-        await call.message.answer("Xizmat topilmadi.", reply_markup=admin_menu())
-        return
-    stars_text = f"{s.get('stars_price', 0)} XTR" if s.get("supports_stars") else "o'chirilgan"
-    text = (
-        f"✏️ <b>{s['name']}</b> tahrirlash\n\n"
-        f"💰 Narx: {s['price']:,} so'm\n"
-        f"⭐ Stars: {stars_text}\n"
-        f"🚚 Mode: {s.get('delivery_mode', 'manual')}\n\n"
-        f"Qaysi maydonni o'zgartirmoqchisiz?"
-    )
-    buttons = [
-        [InlineKeyboardButton(text="✏️ Nom", callback_data=f"adm_ef:name:{service_id}"),
-         InlineKeyboardButton(text="💰 Narx", callback_data=f"adm_ef:price:{service_id}")],
-        [InlineKeyboardButton(text="📝 Tavsif (UZ)", callback_data=f"adm_ef:desc_uz:{service_id}"),
-         InlineKeyboardButton(text="📝 Tavsif (RU)", callback_data=f"adm_ef:desc_ru:{service_id}")],
-        [InlineKeyboardButton(text="⭐ Stars narx", callback_data=f"adm_ef:stars:{service_id}"),
-         InlineKeyboardButton(text="🚚 Delivery mode", callback_data=f"adm_ef:delivery:{service_id}")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"adm_service:{service_id}")],
-    ]
-    await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
-
-
-@router.callback_query(F.data.startswith("adm_ef:"))
-async def adm_edit_field_pick(call: CallbackQuery, state: FSMContext):
-    _, field, sid = call.data.split(":")
-    service_id = int(sid)
-    await call.answer()
-    await state.update_data(edit_id=service_id, edit_field=field)
-
-    prompts = {
-        "name": "✏️ Yangi nom kiriting:",
-        "price": "💰 Yangi narxni kiriting (raqam):",
-        "desc_uz": "📝 Yangi tavsif (O'zbekcha):",
-        "desc_ru": "📝 Yangi tavsif (Ruscha):",
-        "stars": "⭐ Yangi Stars narxi (0 = o'chirish):",
-        "delivery": "🚚 Delivery mode tanlang:",
-    }
-    if field == "delivery":
-        await state.set_state(EditServiceState.delivery_mode)
-        await call.message.answer(prompts[field], reply_markup=delivery_mode_keyboard(edit_mode=True))
-    else:
-        await state.set_state(EditServiceState.name)
-        await call.message.answer(prompts[field], reply_markup=cancel_keyboard())
+    await state.update_data(edit_id=service_id)
+    await state.set_state(EditServiceState.name)
+    await call.message.answer("\u270f\ufe0f Yangi nom ('-' = o'zgartirmaslik):", reply_markup=cancel_keyboard())
 
 
 @router.message(EditServiceState.name)
-async def adm_edit_single_field(message: Message, state: FSMContext):
+async def adm_edit_name(message: Message, state: FSMContext):
     if message.text in ADMIN_CANCEL_TEXTS:
         await state.clear()
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
     data = await state.get_data()
-    service_id = data["edit_id"]
-    field = data.get("edit_field", "name")
-    text = (message.text or "").strip()
+    if message.text != "-":
+        await state.update_data(new_name=message.text)
+    else:
+        s = await db.get_service(data["edit_id"])
+        await state.update_data(new_name=s["name"])
+    await state.set_state(EditServiceState.description_uz)
+    await message.answer("?????? Yangi tavsif O'zbekcha ('-' = o'zgartirmaslik):")
 
-    if field == "name":
-        if not text:
-            await message.answer("❗ Nom bo'sh bo'lishi mumkin emas:")
-            return
-        await db.execute_sql(f"UPDATE services SET name = ? WHERE id = ?", (text, service_id))
-    elif field == "price":
-        if not text.isdigit():
-            await message.answer("❗ Faqat raqam kiriting:")
-            return
-        await db.execute_sql(f"UPDATE services SET price = ? WHERE id = ?", (int(text), service_id))
-    elif field == "desc_uz":
-        await db.execute_sql(f"UPDATE services SET description_uz = ?, description = ? WHERE id = ?", (text, text, service_id))
-    elif field == "desc_ru":
-        await db.execute_sql(f"UPDATE services SET description_ru = ? WHERE id = ?", (text, service_id))
-    elif field == "stars":
-        if not text.isdigit():
-            await message.answer("❗ Faqat raqam kiriting:")
-            return
-        stars_val = int(text)
-        supports = 1 if stars_val > 0 else 0
-        await db.execute_sql(f"UPDATE services SET stars_price = ?, supports_stars = ? WHERE id = ?", (stars_val, supports, service_id))
 
-    await state.clear()
-    s = normalize_service(await db.get_service(service_id))
+@router.message(EditServiceState.description_uz)
+async def adm_edit_desc_uz(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+    data = await state.get_data()
+    if message.text != "-":
+        await state.update_data(new_desc_uz=message.text)
+    else:
+        s = await db.get_service(data["edit_id"])
+        await state.update_data(new_desc_uz=s["description_uz"] or s["description"] or "")
+    await state.set_state(EditServiceState.description_ru)
+    await message.answer("?????? Yangi tavsif Ruscha ('-' = o'zgartirmaslik):")
+
+
+@router.message(EditServiceState.description_ru)
+async def adm_edit_desc_ru(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+    data = await state.get_data()
+    if message.text != "-":
+        await state.update_data(new_desc_ru=message.text)
+    else:
+        s = await db.get_service(data["edit_id"])
+        await state.update_data(new_desc_ru=s["description_ru"] or s["description"] or "")
+    await state.set_state(EditServiceState.price)
+    await message.answer("\U0001f4b0 Yangi narx ('-' = o'zgartirmaslik):")
+
+
+@router.message(EditServiceState.price)
+async def adm_edit_price(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+    data = await state.get_data()
+    if message.text != "-":
+        if not message.text.isdigit():
+            await message.answer("\u2757 Faqat raqam:")
+            return
+        new_price = int(message.text)
+    else:
+        s = await db.get_service(data["edit_id"])
+        new_price = s["price"]
+    await state.update_data(new_price=new_price)
+    await state.set_state(EditServiceState.stars_price)
+    await message.answer("?????? Yangi Telegram Stars narxi ('-' = o'zgartirmaslik):", reply_markup=cancel_keyboard())
+
+
+@router.message(EditServiceState.stars_price)
+async def adm_edit_stars_price(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+    data = await state.get_data()
+    if message.text != "-":
+        if not message.text.isdigit():
+            await message.answer("?????? Faqat musbat butun son kiriting:")
+            return
+        stars_price = int(message.text)
+    else:
+        s = await db.get_service(data["edit_id"])
+        # Fallback dictionary get for dict/Row compatibility
+        stars_price = s["stars_price"] if "stars_price" in s.keys() else 0
+    await state.update_data(new_stars_price=stars_price)
+    await state.set_state(EditServiceState.supports_stars)
+    await message.answer("?????? Telegram Stars orqali to'lovni yoqasizmi? ('-' = o'zgartirmaslik, 1 = Ha, 0 = Yo'q):", reply_markup=cancel_keyboard())
+
+
+@router.message(EditServiceState.supports_stars)
+async def adm_edit_supports_stars(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+    data = await state.get_data()
+    if message.text != "-":
+        if message.text not in ["0", "1"]:
+            await message.answer("?????? Faqat 1 yoki 0 ni kiriting:")
+            return
+        supports_stars = int(message.text)
+    else:
+        s = await db.get_service(data["edit_id"])
+        supports_stars = s["supports_stars"] if "supports_stars" in s.keys() else 0
+        
+    stars_price = data.get("new_stars_price", 0)
+    if supports_stars == 1 and stars_price <= 0:
+        await message.answer("??? Telegram Stars yoqish uchun narx > 0 bo'lishi kerak.\n?????? Avval Stars narxini to'g'ri kiriting.")
+        await state.set_state(EditServiceState.stars_price)
+        await message.answer("?????? Telegram Stars narxini qaytadan kiriting:", reply_markup=cancel_keyboard())
+        return
+    await state.update_data(new_supports_stars=supports_stars)
+    await state.set_state(EditServiceState.delivery_mode)
     await message.answer(
-        f"✅ Yangilandi: <b>{s['name']}</b> — {s['price']:,} so'm",
+        "?????? Yangi delivery mode ('-' = o'zgartirmaslik):\nmanual\nkey_auto\nform_required\nreferral_activation",
+        reply_markup=cancel_keyboard(),
+    )
+
+
+async def _finish_edit_service(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await db.update_service(
+        data["edit_id"], data["new_name"], data.get("new_desc_uz", ""),
+        data["new_price"], description_ru=data.get("new_desc_ru", ""),
+        stars_price=data.get("new_stars_price", 0),
+        supports_stars=data.get("new_supports_stars", 0),
+        delivery_mode=data.get("new_delivery_mode", "manual"),
+        required_referrals=data.get("new_required_referrals", 0),
+        requires_email=data.get("new_requires_email", 0),
+        referral_deadline_days=data.get("new_referral_deadline_days", 0),
+    )
+    await state.clear()
+    await message.answer(
+        f"\u2705 Yangilandi: <b>{data['new_name']}</b> ??? {data['new_price']:,} so'm",
         reply_markup=admin_menu(),
         parse_mode="HTML",
     )
@@ -1981,39 +1884,84 @@ async def adm_edit_delivery_mode(message: Message, state: FSMContext):
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
     data = await state.get_data()
-    service_id = data["edit_id"]
-    text = (message.text or "").strip()
+    service = normalize_service(await db.get_service(data["edit_id"]))
+    if message.text != "-":
+        delivery_mode = (message.text or "").strip()
+        if not _is_valid_delivery_mode(delivery_mode):
+            await message.answer("? Quyidagilardan birini kiriting: manual, key_auto, form_required, referral_activation")
+            return
+    else:
+        delivery_mode = service.get("delivery_mode", "manual")
+    await state.update_data(
+        new_delivery_mode=delivery_mode,
+        new_required_referrals=int(service.get("required_referrals") or 0),
+        new_requires_email=int(service.get("requires_email") or 0),
+        new_referral_deadline_days=int(service.get("referral_deadline_days") or 0),
+    )
+    if delivery_mode == "referral_activation":
+        await state.set_state(EditServiceState.required_referrals)
+        await message.answer("?????? Yangi required_referrals ('-' = o'zgartirmaslik):", reply_markup=cancel_keyboard())
+        return
+    await _finish_edit_service(message, state)
 
-    if text == "-":
+
+@router.message(EditServiceState.required_referrals)
+async def adm_edit_required_referrals(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
         await state.clear()
-        await message.answer("O'zgartirilmadi.", reply_markup=admin_menu())
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
+    data = await state.get_data()
+    service = normalize_service(await db.get_service(data["edit_id"]))
+    if message.text != "-":
+        if not (message.text or "").isdigit() or int(message.text) <= 0:
+            await message.answer("? Musbat butun son kiriting:")
+            return
+        value = int(message.text)
+    else:
+        value = int(service.get("required_referrals") or 0)
+    await state.update_data(new_required_referrals=value)
+    await state.set_state(EditServiceState.requires_email)
+    await message.answer("?????? Email majburiymi? ('-' = o'zgartirmaslik, 1 = Ha, 0 = Yo'q):", reply_markup=cancel_keyboard())
 
-    delivery_map = {
-        "📋 Manual (qo'lda)": "manual",
-        "⚡ Avtomatik (shablon)": "key_auto",
-        "🧾 Forma to'ldirish": "form_required",
-        "🎯 Referral aktivatsiya": "referral_activation",
-        "manual": "manual",
-        "key_auto": "key_auto",
-        "form_required": "form_required",
-        "referral_activation": "referral_activation",
-    }
-    delivery_mode = delivery_map.get(text)
-    if not delivery_mode:
-        await message.answer("❌ Tugmalardan birini tanlang:", reply_markup=delivery_mode_keyboard(edit_mode=True))
+
+@router.message(EditServiceState.requires_email)
+async def adm_edit_requires_email(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
+    data = await state.get_data()
+    service = normalize_service(await db.get_service(data["edit_id"]))
+    if message.text != "-":
+        if message.text not in ["0", "1"]:
+            await message.answer("?????? Faqat 1 yoki 0 ni kiriting:")
+            return
+        value = int(message.text)
+    else:
+        value = int(service.get("requires_email") or 0)
+    await state.update_data(new_requires_email=value)
+    await state.set_state(EditServiceState.referral_deadline_days)
+    await message.answer("? Deadline days ('-' = o'zgartirmaslik, 0/7/14/30):", reply_markup=cancel_keyboard())
 
-    await db.execute_sql(
-        "UPDATE services SET delivery_mode = ? WHERE id = ?",
-        (delivery_mode, service_id)
-    )
-    await state.clear()
-    await message.answer(
-        f"✅ Delivery mode yangilandi: <code>{delivery_mode}</code>",
-        reply_markup=admin_menu(),
-        parse_mode="HTML",
-    )
+
+@router.message(EditServiceState.referral_deadline_days)
+async def adm_edit_referral_deadline_days(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+    data = await state.get_data()
+    service = normalize_service(await db.get_service(data["edit_id"]))
+    if message.text != "-":
+        if message.text not in ["0", "7", "14", "30"]:
+            await message.answer("? Faqat 0, 7, 14 yoki 30 kiriting:")
+            return
+        value = int(message.text)
+    else:
+        value = int(service.get("referral_deadline_days") or 0)
+    await state.update_data(new_referral_deadline_days=value)
+    await _finish_edit_service(message, state)
 
 
 @router.callback_query(F.data.startswith("adm_edit_stock:"))
@@ -2052,7 +2000,7 @@ async def adm_toggle(call: CallbackQuery):
     status = "\u2705 Faol" if s["active"] else "\U0001f534 Nofaol"
     await call.answer(f"Holat: {status}")
     avg, cnt = await db.get_service_avg_rating(service_id)
-    text = f"\U0001f539 <b>{s['name']}</b>\n{s['description'] or '—'}\n\U0001f4b0 {s['price']:,} so'm\n\U0001f4e6 Qoldiq: {s['stock']} ta\nHolat: {status}"
+    text = f"\U0001f539 <b>{s['name']}</b>\n{s['description'] or '???'}\n\U0001f4b0 {s['price']:,} so'm\n\U0001f4e6 Qoldiq: {s['stock']} ta\nHolat: {status}"
     await call.message.edit_text(text, reply_markup=service_admin_detail(service_id, s["active"], bool(s["delivery_content"]), bool(s.get("form_instruction")), bool(s.get("auto_deliver"))), parse_mode="HTML")
 
 
@@ -2118,7 +2066,7 @@ async def category_view(call: CallbackQuery):
         text += "<b>Ichidagi xizmatlar:</b>\n"
         for s in services:
             status = "\u2705" if s["active"] else "\U0001f534"
-            text += f"{status} {s['name']} — {s['price']:,} so'm\n"
+            text += f"{status} {s['name']} ??? {s['price']:,} so'm\n"
     else:
         text += "Hozircha bu kategoriyada xizmat yo'q.\n"
 
@@ -2173,7 +2121,7 @@ async def category_attach_pick(call: CallbackQuery):
         return
 
     await db.update_service_category(service_id, cat_id)
-    await call.answer("✅ Xizmat kategoriyaga biriktirildi!")
+    await call.answer("??? Xizmat kategoriyaga biriktirildi!")
 
     services = await db.get_services(only_active=False, category_id=cat_id)
     text = f"\U0001f4c2 <b>{cat['name']}</b>\n\n"
@@ -2181,7 +2129,7 @@ async def category_attach_pick(call: CallbackQuery):
         text += "<b>Ichidagi xizmatlar:</b>\n"
         for s in services:
             status = "\u2705" if s["active"] else "\U0001f534"
-            text += f"{status} {s['name']} — {s['price']:,} so'm\n"
+            text += f"{status} {s['name']} ??? {s['price']:,} so'm\n"
     else:
         text += "Hozircha bu kategoriyada xizmat yo'q.\n"
 
@@ -2228,7 +2176,7 @@ async def edit_category_start(call: CallbackQuery, state: FSMContext):
     await state.set_state(EditCategoryState.name)
     await call.answer()
     await call.message.answer(
-        f"✏️ <b>{cat['name']}</b> uchun yangi nom kiriting:",
+        f"?????? <b>{cat['name']}</b> uchun yangi nom kiriting:",
         reply_markup=cancel_keyboard(),
         parse_mode="HTML",
     )
@@ -2243,7 +2191,7 @@ async def edit_category_name(message: Message, state: FSMContext):
 
     new_name = message.text.strip()
     if not new_name:
-        await message.answer("❗ Kategoriya nomi bo'sh bo'lmasin:")
+        await message.answer("??? Kategoriya nomi bo'sh bo'lmasin:")
         return
 
     data = await state.get_data()
@@ -2253,7 +2201,7 @@ async def edit_category_name(message: Message, state: FSMContext):
 
     categories = await db.get_categories()
     await message.answer(
-        f"✅ Kategoriya yangilandi: <b>{new_name}</b>",
+        f"??? Kategoriya yangilandi: <b>{new_name}</b>",
         reply_markup=admin_menu(),
         parse_mode="HTML",
     )
@@ -2295,7 +2243,7 @@ async def add_coupon_start(call: CallbackQuery, state: FSMContext):
     services = await db.get_services(only_active=False)
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-    buttons = [[InlineKeyboardButton(text="▫️ Barcha xizmatlar", callback_data="adm_coupon_service:all")]]
+    buttons = [[InlineKeyboardButton(text="?????? Barcha xizmatlar", callback_data="adm_coupon_service:all")]]
     for s in services[:100]:
         title = s["name"]
         if len(title) > 45:
@@ -2304,7 +2252,7 @@ async def add_coupon_start(call: CallbackQuery, state: FSMContext):
 
     await state.set_state(AddCouponState.service)
     await call.message.answer(
-        "▫️ Kupon qaysi xizmat uchun bo'lishini tanlang:",
+        "?????? Kupon qaysi xizmat uchun bo'lishini tanlang:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
     )
 
@@ -2325,7 +2273,7 @@ async def add_coupon_pick_service(call: CallbackQuery, state: FSMContext):
         scope_text = service["name"] if service else f"ID {service_id}"
 
     await call.message.answer(
-        f"📌 Kupon kodi (lotin harflari):\nTanlangan xizmat: <b>{scope_text}</b>",
+        f"???? Kupon kodi (lotin harflari):\nTanlangan xizmat: <b>{scope_text}</b>",
         reply_markup=cancel_keyboard(),
         parse_mode="HTML",
     )
@@ -2399,7 +2347,7 @@ async def add_coupon_max_per_user(message: Message, state: FSMContext):
     except sqlite3.IntegrityError:
         await state.set_state(AddCouponState.code)
         await message.answer(
-            "❌ Bu kupon kodi allaqachon mavjud. Boshqa kod kiriting:",
+            "??? Bu kupon kodi allaqachon mavjud. Boshqa kod kiriting:",
             reply_markup=cancel_keyboard(),
         )
         return
@@ -2451,44 +2399,11 @@ async def backup_db(message: Message, bot: Bot):
 async def bonus_manage_start(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
-    await state.clear()
-    
-    data = await db.get_bonus_monitoring()
-    text = f"💎 <b>Bonus Monitoringi</b>\n\n"
-    text += f"💰 <b>Jami berilgan bonuslar:</b> {data['total_bonus']:,} so'm\n\n"
-    
-    if data['top_users']:
-        text += "👑 <b>Eng ko'p bonusga ega mijozlar (Top 10):</b>\n"
-        for i, u in enumerate(data['top_users'], 1):
-            name = (u['full_name'] or u['username'] or str(u['id'])).strip()
-            if not name or name == ".": name = str(u['id'])
-            text += f"{i}. {name} — <b>{u['bonus_balance']:,} so'm</b>\n"
-        text += "\n"
-        
-    if data['recent_txs']:
-        text += "🕒 <b>So'nggi bonus amaliyotlari:</b>\n"
-        for tx in data['recent_txs']:
-            amount_str = f"+{tx['amount']:,}" if tx['amount'] > 0 else f"{tx['amount']:,}"
-            dt_str = tx['created_at'][:16]
-            text += f"• {dt_str} | ID: <code>{tx['user_id']}</code> | <b>{amount_str}</b> | <i>{tx['reason']}</i>\n"
-            
-    await message.answer(
-        text,
-        reply_markup=bonus_monitoring_keyboard(),
-        parse_mode="HTML",
-    )
-
-
-@router.callback_query(F.data == "adm_bonus_search")
-async def adm_bonus_search(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    await call.answer()
     await state.set_state(BonusManageState.user_id)
-    await call.message.answer(
-        "🔍 <b>Foydalanuvchi ID kiriting:</b>",
+    await message.answer(
+        "\U0001f48e <b>Bonus boshqaruv</b>\n\nFoydalanuvchi ID kiriting:",
         reply_markup=cancel_keyboard(),
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
@@ -2512,7 +2427,7 @@ async def bonus_manage_find_user(message: Message, state: FSMContext):
     tier = get_tier(ref_count)
     tier_label = TIER_LABELS[tier]["uz"]
     await message.answer(
-        f"\U0001f464 <b>{user['full_name'] or 'Nomalum'}</b> (@{user['username'] or '—'})\n"
+        f"\U0001f464 <b>{user['full_name'] or 'Nomalum'}</b> (@{user['username'] or '???'})\n"
         f"\U0001f194 ID: <code>{uid}</code>\n"
         f"\U0001f48e Bonus balans: <b>{balance:,} so'm</b>\n"
         f"\U0001f3c6 Daraja: {tier_label} ({ref_count} ta taklif)",
@@ -2606,22 +2521,22 @@ async def bonus_log_show(call: CallbackQuery):
     text = f"\U0001f4cb <b>Bonus tarixi (ID: {uid}):</b>\n\n"
     for log in logs:
         sign = "\u2795" if log["type"] == "credit" else "\u2796"
-        text += f"{sign} {log['amount']:,} so'm — {log['description'] or '—'}\n   {log['created_at'][:16]}\n\n"
+        text += f"{sign} {log['amount']:,} so'm ??? {log['description'] or '???'}\n   {log['created_at'][:16]}\n\n"
     await call.answer()
     await call.message.answer(text, parse_mode="HTML")
 
 
-@router.message(F.text == "⭐ Reviewlar")
+@router.message(F.text == "??? Reviewlar")
 async def adm_recent_reviews(message: Message):
     if not is_admin(message.from_user.id): return
     reviews = await db.get_recent_reviews(limit=20)
     if not reviews:
         await message.answer("Hozircha izohlar yo'q.")
         return
-    text = "⭐ <b>So'nggi 20 ta izoh:</b>\n\n"
+    text = "??? <b>So'nggi 20 ta izoh:</b>\n\n"
     for r in reviews:
-        stars = "⭐" * r["rating"]
-        text += f"📌 <b>{r['full_name']}</b> ({r['service_name']})\n{stars}\n📌 <i>{r['comment'] or 'Izohsiz'}</i>\n\n"
+        stars = "???" * r["rating"]
+        text += f"???? <b>{r['full_name']}</b> ({r['service_name']})\n{stars}\n???? <i>{r['comment'] or 'Izohsiz'}</i>\n\n"
     await message.answer(text, parse_mode="HTML")
 
 
@@ -2635,7 +2550,7 @@ async def adm_sup_reply_start(call: CallbackQuery, state: FSMContext):
     await state.update_data(reply_ticket_user=user_id)
     await state.set_state(AdminSupportReplyState.message)
     await call.message.answer(
-        f"▫️ ID <code>{user_id}</code> bo'lgan mijozga javobingizni kiriting:", 
+        f"?????? ID <code>{user_id}</code> bo'lgan mijozga javobingizni kiriting:", 
         parse_mode="HTML", 
         reply_markup=cancel_keyboard()
     )
@@ -2656,7 +2571,7 @@ async def ticket_reply_start(call: CallbackQuery, state: FSMContext):
     await state.update_data(reply_ticket_id=ticket_id, reply_ticket_user=ticket["user_id"])
     await state.set_state(AdminSupportReplyState.message)
     await call.message.answer(
-        f"🎫 Ticket #{ticket_id} ga javobingizni yozing:",
+        f"???? Ticket #{ticket_id} ga javobingizni yozing:",
         reply_markup=cancel_keyboard(),
     )
 
@@ -2667,9 +2582,9 @@ async def ticket_close(call: CallbackQuery):
         return
     ticket_id = int(call.data.split(":")[1])
     await db.close_ticket(ticket_id)
-    await call.answer("✅ Ticket yopildi!")
+    await call.answer("? Ticket yopildi!")
     await call.message.edit_text(
-        call.message.text + "\n\n✅ <b>YOPILDI</b>",
+        call.message.text + "\n\n? <b>YOPILDI</b>",
         parse_mode="HTML",
     )
 
@@ -2696,30 +2611,30 @@ async def ticket_reply_send(message: Message, state: FSMContext, bot: Bot):
             ticket_ref = f" (Ticket #{ticket_id})" if ticket_id else ""
             await bot.send_message(
                 user_id,
-                f"📌 <b>Operatordan javob{ticket_ref}:</b>\n\n{message.text}",
+                f"???? <b>Operatordan javob{ticket_ref}:</b>\n\n{message.text}",
                 parse_mode="HTML",
             )
-            await message.answer("✅ Javob yuborildi!", reply_markup=admin_menu())
+            await message.answer("? Javob yuborildi!", reply_markup=admin_menu())
         except Exception as e:
-            await message.answer(f"❌ Xatolik: {e}", reply_markup=admin_menu())
+            await message.answer(f"? Xatolik: {e}", reply_markup=admin_menu())
     else:
-        await message.answer("❌ User topilmadi.", reply_markup=admin_menu())
+        await message.answer("? User topilmadi.", reply_markup=admin_menu())
 
 
-@router.message(F.text == "▫️ Aksiyalar boshqaruvi")
+@router.message(F.text == "?????? Aksiyalar boshqaruvi")
 async def manage_promos(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     await state.clear()
     promos = await db.get_promos()
     from keyboards.admin_kb import promos_manage_keyboard
-    await message.answer("📌 <b>Aksiyalar:</b>", reply_markup=promos_manage_keyboard(promos), parse_mode="HTML")
+    await message.answer("???? <b>Aksiyalar:</b>", reply_markup=promos_manage_keyboard(promos), parse_mode="HTML")
 
 @router.callback_query(F.data == "adm_add_promo")
 async def add_promo_start(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id): return
     await call.answer()
     await state.set_state(PromoAddState.title)
-    await call.message.answer("▫️ Aksiya sarlavhasini kiriting:", reply_markup=cancel_keyboard())
+    await call.message.answer("?????? Aksiya sarlavhasini kiriting:", reply_markup=cancel_keyboard())
 
 @router.message(PromoAddState.title)
 async def add_promo_title(message: Message, state: FSMContext):
@@ -2729,7 +2644,7 @@ async def add_promo_title(message: Message, state: FSMContext):
         return
     await state.update_data(title=message.text)
     await state.set_state(PromoAddState.text)
-    await message.answer("▫️ Aksiya matnini kiriting:")
+    await message.answer("?????? Aksiya matnini kiriting:")
 
 @router.message(PromoAddState.text)
 async def add_promo_text(message: Message, state: FSMContext):
@@ -2740,7 +2655,7 @@ async def add_promo_text(message: Message, state: FSMContext):
     await state.update_data(text=message.text)
     await state.set_state(PromoAddState.image)
     await message.answer(
-        "▫️ Aksiya rasmini yuboring (yoki matn ko'rinishida 'o'tkazish' deb yozing):",
+        "?????? Aksiya rasmini yuboring (yoki matn ko'rinishida 'o'tkazish' deb yozing):",
         reply_markup=cancel_keyboard(),
     )
 
@@ -2757,7 +2672,7 @@ async def add_promo_image(message: Message, state: FSMContext):
 
     await db.add_promo(title=data["title"], text=data["text"], image_file_id=file_id, url=None)
     await state.clear()
-    await message.answer("✅ Aksiya muvaffaqiyatli saqlandi!", reply_markup=admin_menu())
+    await message.answer("??? Aksiya muvaffaqiyatli saqlandi!", reply_markup=admin_menu())
 
 @router.callback_query(F.data.startswith("adm_del_promo:"))
 async def del_promo(call: CallbackQuery):
@@ -2770,13 +2685,13 @@ async def del_promo(call: CallbackQuery):
     await call.answer("O'chirildi")
 
 
-@router.message(F.text == "▫️ Cashback aksiyalar")
+@router.message(F.text == "?????? Cashback aksiyalar")
 async def manage_cashback_promos(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     await state.clear()
     promos = await db.list_all_service_promotions()
     from keyboards.admin_kb import cashback_promos_manage_keyboard
-    await message.answer("📌 <b>Cashback Aksiyalar:</b>", reply_markup=cashback_promos_manage_keyboard(promos), parse_mode="HTML")
+    await message.answer("???? <b>Cashback Aksiyalar:</b>", reply_markup=cashback_promos_manage_keyboard(promos), parse_mode="HTML")
 
 async def _render_cashback_panel(call: CallbackQuery, service_id: int) -> None:
     """Build and edit-in-place the cashback management panel for a service."""
@@ -2784,9 +2699,9 @@ async def _render_cashback_panel(call: CallbackQuery, service_id: int) -> None:
     s = await db.get_service(service_id)
     promo = await db.get_service_promo_admin(service_id)
 
-    text = f"📌 <b>{s['name']}</b> uchun Cashback:\n\n"
+    text = f"???? <b>{s['name']}</b> uchun Cashback:\n\n"
     if promo:
-        status = "▫️ Faol" if promo["is_active"] else "▫️ Nofaol"
+        status = "?????? Faol" if promo["is_active"] else "?????? Nofaol"
         text += (
             f"Sarlavha: <b>{promo['title']}</b>\n"
             f"Foiz: <b>{promo['cashback_percent']}%</b>\n"
@@ -2796,13 +2711,13 @@ async def _render_cashback_panel(call: CallbackQuery, service_id: int) -> None:
         text += "Hozircha o'rnatilmagan.\n\n"
 
     buttons = [
-        [InlineKeyboardButton(text="✏️ O'zgartirish / Qo'shish", callback_data=f"adm_edit_cb:{service_id}")],
+        [InlineKeyboardButton(text="?????? O'zgartirish / Qo'shish", callback_data=f"adm_edit_cb:{service_id}")],
     ]
     if promo:
-        toggle_label = "⛔ O'chirish" if promo["is_active"] else "✅ Yoqish"
+        toggle_label = "??? O'chirish" if promo["is_active"] else "??? Yoqish"
         buttons.append([InlineKeyboardButton(text=toggle_label, callback_data=f"adm_toggle_cb:{promo['id']}")])
-        buttons.append([InlineKeyboardButton(text="▫️ O'chirish", callback_data=f"adm_del_cb:{promo['id']}")])
-    buttons.append([InlineKeyboardButton(text="⬅️ Ortga", callback_data=f"adm_service:{service_id}")])
+        buttons.append([InlineKeyboardButton(text="?????? O'chirish", callback_data=f"adm_del_cb:{promo['id']}")])
+    buttons.append([InlineKeyboardButton(text="?????? Ortga", callback_data=f"adm_service:{service_id}")])
 
     await call.message.edit_text(
         text,
@@ -2825,7 +2740,7 @@ async def adm_edit_cb_start(call: CallbackQuery, state: FSMContext):
     service_id = int(call.data.split(":")[1])
     await state.update_data(cashback_service_id=service_id)
     await state.set_state(PromoCashbackState.title)
-    await call.message.answer("▫️ Cashback sarlavhasini kiriting (masalan: Yozgi cashback):", reply_markup=cancel_keyboard())
+    await call.message.answer("?????? Cashback sarlavhasini kiriting (masalan: Yozgi cashback):", reply_markup=cancel_keyboard())
     await call.answer()
 
 @router.message(PromoCashbackState.title)
@@ -2836,7 +2751,7 @@ async def adm_edit_cb_title(message: Message, state: FSMContext):
         return
     await state.update_data(cb_title=message.text)
     await state.set_state(PromoCashbackState.percent)
-    await message.answer("▫️ Necha foiz cashback beriladi? (Raqam kiriting, 0 dan 100 gacha, masalan: 10):", reply_markup=cancel_keyboard())
+    await message.answer("?????? Necha foiz cashback beriladi? (Raqam kiriting, 0 dan 100 gacha, masalan: 10):", reply_markup=cancel_keyboard())
 
 @router.message(PromoCashbackState.percent)
 async def adm_edit_cb_percent(message: Message, state: FSMContext):
@@ -2849,14 +2764,14 @@ async def adm_edit_cb_percent(message: Message, state: FSMContext):
         if not (0 < percent <= 100):
             raise ValueError
     except ValueError:
-        await message.answer("❌ Noto'g'ri foiz kiritdingiz. Qaytadan raqam kiriting (masalan: 10):")
+        await message.answer("??? Noto'g'ri foiz kiritdingiz. Qaytadan raqam kiriting (masalan: 10):")
         return
         
     data = await state.get_data()
     service_id = data["cashback_service_id"]
     await db.create_or_update_service_promo(service_id, data["cb_title"], percent)
     await state.clear()
-    await message.answer(f"✅ <b>{data['cb_title']}</b> {percent}% qilib saqlandi!", reply_markup=admin_menu(), parse_mode="HTML")
+    await message.answer(f"??? <b>{data['cb_title']}</b> {percent}% qilib saqlandi!", reply_markup=admin_menu(), parse_mode="HTML")
 
 @router.callback_query(F.data.startswith("adm_toggle_cb:"))
 async def adm_toggle_cb(call: CallbackQuery):
@@ -2876,7 +2791,7 @@ async def adm_toggle_cb(call: CallbackQuery):
 async def adm_delete_cb(call: CallbackQuery):
     if not is_admin(call.from_user.id): return
     promo_id = int(call.data.split(":")[1])
-    # Read service_id BEFORE deleting — after deletion the row is gone
+    # Read service_id BEFORE deleting ??? after deletion the row is gone
     promo = await db.get_service_promo_admin_by_id(promo_id)
     if not promo:
         await call.answer("Promo topilmadi!", show_alert=True)
@@ -2898,20 +2813,20 @@ async def _show_bulk_panel(call: CallbackQuery, service_id: int) -> None:
     s = await db.get_service(service_id)
     tiers = await db.get_bulk_prices(service_id)
 
-    text = f"📌 <b>{s['name']}</b>\nUlgurji narxlar ro'yxati:\n\n"
+    text = f"???? <b>{s['name']}</b>\nUlgurji narxlar ro'yxati:\n\n"
     buttons = []
     if tiers:
         for tier in tiers:
-            text += f"▪️ {tier['min_quantity']} ta dan boshlab — {tier['price_per_unit']:,} so'm/dona\n"
+            text += f"?????? {tier['min_quantity']} ta dan boshlab ??? {tier['price_per_unit']:,} so'm/dona\n"
             buttons.append([InlineKeyboardButton(
-                text=f"▫️ O'chirish: {tier['min_quantity']} ta",
+                text=f"?????? O'chirish: {tier['min_quantity']} ta",
                 callback_data=f"adm_del_bulk:{tier['id']}:{service_id}",
             )])
     else:
         text += "Hali narxlar qo'shilmagan.\n\n"
 
-    buttons.append([InlineKeyboardButton(text="➕ Yangi qo'shish", callback_data=f"adm_add_bulk:{service_id}")])
-    buttons.append([InlineKeyboardButton(text="▫️ Orqaga", callback_data=f"adm_service:{service_id}")])
+    buttons.append([InlineKeyboardButton(text="??? Yangi qo'shish", callback_data=f"adm_add_bulk:{service_id}")])
+    buttons.append([InlineKeyboardButton(text="?????? Orqaga", callback_data=f"adm_service:{service_id}")])
 
     await call.message.edit_text(
         text,
@@ -2986,7 +2901,7 @@ async def bulk_price_entered(message: Message, state: FSMContext):
 
     s = await db.get_service(service_id)
     await message.answer(
-        f"✅ <b>{s['name']}</b> uchun {data['min_qty']} ta dan narx <b>{price:,} so'm</b> etib belgilandi.",
+        f"??? <b>{s['name']}</b> uchun {data['min_qty']} ta dan narx <b>{price:,} so'm</b> etib belgilandi.",
         reply_markup=admin_menu(),
         parse_mode="HTML",
     )
@@ -3008,7 +2923,7 @@ async def adm_toggle_auto_deliver(call: CallbackQuery):
         return
     new_val = 0 if s.get("auto_deliver") else 1
     await db.set_auto_deliver(service_id, new_val)
-    status_text = "⚡ Auto yetkazish yoqildi!" if new_val else "⚡ Auto yetkazish o'chirildi."
+    status_text = "??? Auto yetkazish yoqildi!" if new_val else "??? Auto yetkazish o'chirildi."
     await call.answer(status_text, show_alert=True)
     # Re-render detail
     s = normalize_service(await db.get_service(service_id))
@@ -3019,8 +2934,8 @@ async def adm_toggle_auto_deliver(call: CallbackQuery):
     if s["delivery_content"]:
         preview = s["delivery_content"][:60] + ("..." if len(s["delivery_content"]) > 60 else "")
         delivery_preview = f"\n\U0001f4e6 Yetkazish: <code>{preview}</code>"
-    auto_deliver_text = "\n⚡ Auto yetkazish: ✅" if s.get("auto_deliver") else ""
-    text = f"\U0001f539 <b>{s['name']}</b>\n{s['description'] or '—'}\n\U0001f4b0 {s['price']:,} so'm\n\U0001f4e6 Qoldiq: {s['stock']} ta\nHolat: {status}{rating_text}{delivery_preview}{auto_deliver_text}"
+    auto_deliver_text = "\n??? Auto yetkazish: ???" if s.get("auto_deliver") else ""
+    text = f"\U0001f539 <b>{s['name']}</b>\n{s['description'] or '?'}\n\U0001f4b0 {s['price']:,} so'm\n\U0001f4e6 Qoldiq: {s['stock']} ta\nHolat: {status}{rating_text}{delivery_preview}{auto_deliver_text}"
     await call.message.edit_text(text, reply_markup=service_admin_detail(service_id, s["active"], bool(s["delivery_content"]), bool(s.get("form_instruction")), bool(s.get("auto_deliver"))), parse_mode="HTML")
 
 
@@ -3034,7 +2949,7 @@ async def adm_flash_sale_setup(call: CallbackQuery, state: FSMContext):
     await state.update_data(flash_service_id=service_id)
     await state.set_state(SetFlashSaleState.discount)
     await call.message.answer(
-        "📌 <b>Flash Sale o'rnatish</b>\n\n"
+        "???? <b>Flash Sale o'rnatish</b>\n\n"
         "Xizmat narxidan necha foiz (%) chegirma qilinishini kiriting. "
         "Agar aksiyani bekor qilmoqchi bo'lsangiz <b>0</b> kiriting.",
         reply_markup=cancel_keyboard(),
@@ -3063,7 +2978,7 @@ async def adm_flash_sale_discount(message: Message, state: FSMContext):
     if discount == 0:
         await db.set_flash_sale(service_id, 0, None)
         await state.clear()
-        await message.answer("Aksiya o'chirildi ✅", reply_markup=admin_menu())
+        await message.answer("Aksiya o'chirildi ?", reply_markup=admin_menu())
         return
         
     await state.update_data(flash_discount=discount)
@@ -3100,7 +3015,7 @@ async def adm_flash_sale_hours(message: Message, state: FSMContext):
     await state.clear()
     
     await message.answer(
-        f"📌 <b>Aksiya saqlandi!</b>\n\n"
+        f"???? <b>Aksiya saqlandi!</b>\n\n"
         f"Chegirma: <b>{discount}%</b>\n"
         f"Tugash vaqti: <b>{expire_at}</b>",
         reply_markup=admin_menu(),
@@ -3115,7 +3030,7 @@ async def start_broadcast(message: Message, state: FSMContext):
         return
     await state.set_state(BroadcastState.message)
     await message.answer(
-        "📌 <b>Xabar yuborish</b>\n\n"
+        "???? <b>Xabar yuborish</b>\n\n"
         "Barcha foydalanuvchilarga yubormoqchi bo'lgan xabaringizni jo'nating. "
         "Matn, rasm yoki video kabi formatlarda jo'natishingiz mumkin.\n\n"
         "Bekor qilish uchun 'Bekor qilish' tugmasini bosing yoki matn yozing.",
@@ -3138,7 +3053,7 @@ async def receive_broadcast_message(message: Message, state: FSMContext):
     
     await state.set_state(BroadcastState.button)
     await message.answer(
-        "▫️ Xabarga inline tugma (silka) qo'shamizmi?\n\n"
+        "?????? Xabarga inline tugma (silka) qo'shamizmi?\n\n"
         "Format: <code>Matn | URL</code>\n"
         "Masalan: <code>Kanalga a'zo bo'lish | https://t.me/kanal</code>\n\n"
         "Agar tugma kerak bo'lmasa, shunchaki 'yoq' yoki '0' deb yozing.",
@@ -3165,7 +3080,7 @@ async def receive_broadcast_button(message: Message, state: FSMContext, bot: Bot
                 InlineKeyboardButton(text=btn_text.strip(), url=btn_url.strip())
             ]])
         else:
-            await message.answer("❌ Noto'g'ri format. Format: Matn | URL (yoki 'yoq')")
+            await message.answer("? Noto'g'ri format. Format: Matn | URL (yoki 'yoq')")
             return
             
     await state.clear()
@@ -3196,511 +3111,11 @@ async def run_broadcast(bot: Bot, from_chat_id: int, message_id: int, reply_mark
     try:
         await bot.send_message(
             admin_id,
-            f"✅ <b>Xabar yetkazildi!</b>\n\n"
-            f"✅ Muvaffaqiyatli: {count}\n"
-            f"🚫 Bloklaganlar / xato: {blocked}",
+            f"? <b>Xabar yetkazildi!</b>\n\n"
+            f"??? Muvaffaqiyatli: {count}\n"
+            f"???? Bloklaganlar / xato: {blocked}",
             parse_mode="HTML"
         )
     except Exception:
         pass
 
-
-# -----------------------------------------------------------------------------
-# REFERRAL CAMPAIGNS ADMIN
-# -----------------------------------------------------------------------------
-
-@router.message(F.text == "🏆 Referral kampaniyalar")
-async def adm_ref_campaigns_list(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    await state.clear()
-    campaigns = await db.get_all_referral_campaigns()
-    text = "🏆 <b>Referral Kampaniyalar</b>"
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    add_btn = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Yangi kampaniya", callback_data="adm_ref_camp_add")]
-    ])
-    if campaigns:
-        await message.answer(text, reply_markup=ref_campaigns_admin_keyboard(campaigns), parse_mode="HTML")
-    else:
-        await message.answer(text + "\n\nHech qanday kampaniya yo'q.", reply_markup=add_btn, parse_mode="HTML")
-
-
-@router.callback_query(F.data == "adm_ref_camp_list")
-async def adm_ref_camp_list_cb(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    await state.clear()
-    campaigns = await db.get_all_referral_campaigns()
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    add_btn = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Yangi kampaniya", callback_data="adm_ref_camp_add")]
-    ])
-    if campaigns:
-        await call.message.edit_text("🏆 <b>Referral Kampaniyalar</b>", reply_markup=ref_campaigns_admin_keyboard(campaigns), parse_mode="HTML")
-    else:
-        await call.message.edit_text("🏆 <b>Referral Kampaniyalar</b>\n\nHech qanday kampaniya yo'q.", reply_markup=add_btn, parse_mode="HTML")
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("adm_ref_camp:"))
-async def adm_ref_camp_detail(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    campaign_id = int(call.data.split(":")[1])
-    camp = await db.get_referral_campaign(campaign_id)
-    if not camp:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    stats = await db.get_campaign_stats(campaign_id)
-    all_parts = await db.get_all_campaign_participants(campaign_id)
-    pending_activations = sum(1 for p in all_parts if p.get("reward_given") and (p.get("activation_status") in ("pending", "ready")))
-    status_text = "✅ Faol" if camp["is_active"] else "🔴 Nofaol"
-    reward_text = camp.get("reward_description") or (f"{camp['reward_value']} bonus" if camp["reward_type"] == "bonus" else "🎁 Xizmat aktivatsiya")
-    deadline_val = camp.get("deadline") or "Yo'q"
-    text = (
-        f"🏆 <b>{html.escape(camp['name'])}</b>\n\n"
-        f"📝 {html.escape(camp.get('description') or '')}\n\n"
-        f"👥 Kerakli referal: {camp['required_referrals']}\n"
-        f"🎁 Mukofot: {reward_text}\n"
-        f"⏳ Muddat: {html.escape(deadline_val)}\n"
-        f"📊 Holat: {status_text}\n\n"
-        f"👤 Jami Ishtirokchilar: {stats.get('total_participants', 0)}\n"
-        f"🏅 Mukofot olganlar: {stats.get('rewarded', 0)}\n"
-        f"⏳ Aktivatsiya kutayotganlar: <b>{pending_activations}</b> ta"
-    )
-    await call.message.edit_text(text, reply_markup=ref_campaign_admin_detail_keyboard(campaign_id, camp["is_active"]), parse_mode="HTML")
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("adm_ref_camp_toggle:"))
-async def adm_ref_camp_toggle(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    campaign_id = int(call.data.split(":")[1])
-    await db.toggle_referral_campaign(campaign_id)
-    camp = await db.get_referral_campaign(campaign_id)
-    if not camp:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    stats = await db.get_campaign_stats(campaign_id)
-    all_parts = await db.get_all_campaign_participants(campaign_id)
-    pending_activations = sum(1 for p in all_parts if p.get("reward_given") and (p.get("activation_status") in ("pending", "ready")))
-    status_text = "✅ Faol" if camp["is_active"] else "🔴 Nofaol"
-    reward_text = camp.get("reward_description") or (f"{camp['reward_value']} bonus" if camp["reward_type"] == "bonus" else "🎁 Xizmat aktivatsiya")
-    deadline_val = camp.get("deadline") or "Yo'q"
-    text = (
-        f"🏆 <b>{html.escape(camp['name'])}</b>\n\n"
-        f"📝 {html.escape(camp.get('description') or '')}\n\n"
-        f"👥 Kerakli referal: {camp['required_referrals']}\n"
-        f"🎁 Mukofot: {reward_text}\n"
-        f"⏳ Muddat: {html.escape(deadline_val)}\n"
-        f"📊 Holat: {status_text}\n\n"
-        f"👤 Jami Ishtirokchilar: {stats.get('total_participants', 0)}\n"
-        f"🏅 Mukofot olganlar: {stats.get('rewarded', 0)}\n"
-        f"⏳ Aktivatsiya kutayotganlar: <b>{pending_activations}</b> ta"
-    )
-    await call.message.edit_text(text, reply_markup=ref_campaign_admin_detail_keyboard(campaign_id, camp["is_active"]), parse_mode="HTML")
-    await call.answer("Holat o'zgartirildi")
-
-
-@router.callback_query(F.data.startswith("adm_ref_camp_delete:"))
-async def adm_ref_camp_delete_ask(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    campaign_id = int(call.data.split(":")[1])
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⚠️ Ha, o'chirish", callback_data=f"adm_ref_camp_del_conf:{campaign_id}")],
-        [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data=f"adm_ref_camp:{campaign_id}")]
-    ])
-    await call.message.edit_text("Haqiqatan ham bu kampaniyani o'chirmoqchimisiz? Barcha ishtirokchilarning ma'lumotlari saqlanib qoladi, lekin kampaniya o'chadi.", reply_markup=kb)
-
-@router.callback_query(F.data.startswith("adm_ref_camp_del_conf:"))
-async def adm_ref_camp_delete_confirm(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    campaign_id = int(call.data.split(":")[1])
-    await db.delete_referral_campaign(campaign_id)
-    campaigns = await db.get_all_referral_campaigns()
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    add_btn = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Yangi kampaniya", callback_data="adm_ref_camp_add")]
-    ])
-    if campaigns:
-        await call.message.edit_text("🏆 <b>Referral Kampaniyalar</b>", reply_markup=ref_campaigns_admin_keyboard(campaigns), parse_mode="HTML")
-    else:
-        await call.message.edit_text("🏆 <b>Referral Kampaniyalar</b>\n\nHech qanday kampaniya yo'q.", reply_markup=add_btn, parse_mode="HTML")
-    await call.answer("O'chirildi")
-
-
-@router.callback_query(F.data == "adm_ref_camp_add")
-async def adm_ref_camp_add_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    await state.set_state(CampaignCreateState.name)
-    await call.message.answer("Kampaniya nomini kiriting:", reply_markup=cancel_keyboard())
-    await call.answer()
-
-
-@router.message(CampaignCreateState.name)
-async def adm_ref_camp_name(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    if message.text in ("❌ Bekor qilish", "Bekor qilish", "Отмена"):
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
-        return
-    await state.update_data(camp_name=message.text.strip())
-    await state.set_state(CampaignCreateState.description)
-    await message.answer("Tavsif kiriting (yoki /skip):")
-
-
-@router.message(CampaignCreateState.description)
-async def adm_ref_camp_description(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    if message.text in ("❌ Bekor qilish", "Bekor qilish", "Отмена"):
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
-        return
-    desc = "" if message.text.strip() == "/skip" else message.text.strip()
-    await state.update_data(camp_desc=desc)
-    await state.set_state(CampaignCreateState.required_referrals)
-    await message.answer("Nechta referal kerak? (son kiriting, masalan 5):")
-
-
-@router.message(CampaignCreateState.required_referrals)
-async def adm_ref_camp_required(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    if message.text in ("❌ Bekor qilish", "Bekor qilish", "Отмена"):
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
-        return
-    if not message.text.strip().isdigit() or int(message.text.strip()) < 1:
-        await message.answer("Iltimos, musbat son kiriting:")
-        return
-    await state.update_data(camp_required=int(message.text.strip()))
-    await state.set_state(CampaignCreateState.reward_type)
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💰 Bonus (pul)", callback_data="camp_rtype:bonus")],
-        [InlineKeyboardButton(text="🎁 Xizmat aktivatsiya", callback_data="camp_rtype:service")],
-    ])
-    await message.answer("Mukofot turini tanlang:", reply_markup=kb)
-
-
-@router.callback_query(F.data.startswith("camp_rtype:"))
-async def adm_ref_camp_rtype(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    rtype = call.data.split(":")[1]
-    await state.update_data(camp_reward_type=rtype)
-    await state.set_state(CampaignCreateState.reward_value)
-    await call.answer()
-    if rtype == "bonus":
-        await call.message.answer("Bonus miqdorini kiriting (masalan 10000):", reply_markup=cancel_keyboard())
-    else:
-        await call.message.answer("Xizmat nomini yoki tavsifini kiriting (masalan: ChatGPT Business Plus 1 oy):", reply_markup=cancel_keyboard())
-
-
-@router.message(CampaignCreateState.reward_value)
-async def adm_ref_camp_reward(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    if message.text in ("❌ Bekor qilish", "Bekor qilish", "Отмена"):
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
-        return
-    data = await state.get_data()
-    reward_type = data.get("camp_reward_type", "bonus")
-    if reward_type == "bonus":
-        if not message.text.strip().isdigit() or int(message.text.strip()) < 0:
-            await message.answer("Iltimos, musbat son kiriting:")
-            return
-        reward_value = int(message.text.strip())
-    else:
-        reward_value = 0  # service type — reward is the service itself
-    reward_desc = message.text.strip() if reward_type == "service" else None
-    await state.update_data(camp_reward_value=reward_value, camp_reward_desc=reward_desc)
-    await state.set_state(CampaignCreateState.deadline)
-    await message.answer("Kampaniya uchun tugash muddati (deadline) kiriting (masalan: 1-Maygacha, 2025-yilgacha, yoki 'Yo\\'q' deb yozing):", reply_markup=cancel_keyboard())
-
-
-@router.message(CampaignCreateState.deadline)
-async def adm_ref_camp_deadline(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    if message.text in ("❌ Bekor qilish", "Bekor qilish", "Отмена"):
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
-        return
-    
-    deadline = None if message.text.strip().lower() in ("yo'q", "yoq", "net", "no", "skip", "/skip") else message.text.strip()
-    data = await state.get_data()
-    reward_type = data.get("camp_reward_type", "bonus")
-
-    await db.create_referral_campaign(
-        name=data["camp_name"],
-        description=data.get("camp_desc", ""),
-        required_referrals=data["camp_required"],
-        reward_type=reward_type,
-        reward_value=data.get("camp_reward_value", 0),
-        reward_description=data.get("camp_reward_desc"),
-        deadline=deadline
-    )
-    await state.clear()
-    campaigns = await db.get_all_referral_campaigns()
-    await message.answer(
-        f"✅ Kampaniya <b>{html.escape(data['camp_name'])}</b> yaratildi!",
-        reply_markup=ref_campaigns_admin_keyboard(campaigns),
-        parse_mode="HTML",
-    )
-
-
-@router.callback_query(F.data.startswith("adm_ref_camp_stats:"))
-async def adm_ref_camp_stats(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    campaign_id = int(call.data.split(":")[1])
-    camp = await db.get_referral_campaign(campaign_id)
-    if not camp:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    stats = await db.get_campaign_stats(campaign_id)
-    text = (
-        f"📊 <b>{html.escape(camp['name'])} — Statistika</b>\n\n"
-        f"👤 Jami ishtirokchilar: {stats.get('total_participants', 0)}\n"
-        f"🏅 Mukofot olganlar: {stats.get('rewarded', 0)}\n"
-        f"⏳ Jarayonda: {stats.get('in_progress', 0)}"
-    )
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    back_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"adm_ref_camp:{campaign_id}")]
-    ])
-    await call.message.edit_text(text, reply_markup=back_kb, parse_mode="HTML")
-    await call.answer()
-
-
-# ---------- CAMPAIGN PARTICIPANTS ----------
-
-@router.callback_query(F.data.startswith("adm_ref_camp_parts:"))
-async def adm_ref_camp_participants(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    campaign_id = int(call.data.split(":")[1])
-    camp = await db.get_referral_campaign(campaign_id)
-    if not camp:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    completed = await db.get_all_campaign_participants(campaign_id)
-    if not completed:
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-        back_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"adm_ref_camp:{campaign_id}")]
-        ])
-        await call.message.edit_text(
-            f"👥 <b>{html.escape(camp['name'])} — Ishtirokchilar</b>\n\nIshtirokchilar yo'q.",
-            reply_markup=back_kb, parse_mode="HTML"
-        )
-        await call.answer()
-        return
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    buttons = []
-    for p in completed:
-        username = f"@{p['username']}" if p.get("username") else (p.get("full_name") or f"ID {p['user_id']}")
-        # Different emoji based on completion
-        if p.get("reward_given"):
-            act_st = p.get("activation_status") or "pending"
-            emoji = {"activated": "✅", "ready": "🟢", "pending": "⏳"}.get(act_st, "⏳")
-        else:
-            emoji = "🏃"  # In progress
-        email = p.get("customer_email") or f"{p.get('current_referrals', 0)}/{camp['required_referrals']} ref"
-        buttons.append([InlineKeyboardButton(
-            text=f"{emoji} {username} | {email[:20]}",
-            callback_data=f"adm_camp_part:{campaign_id}:{p['user_id']}"
-        )])
-    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"adm_ref_camp:{campaign_id}")])
-    await call.message.edit_text(
-        f"👥 <b>{html.escape(camp['name'])} — Barcha ishtirokchilar</b>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-        parse_mode="HTML",
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("adm_camp_part:"))
-async def adm_ref_camp_participant_detail(call: CallbackQuery):
-    if not is_admin(call.from_user.id):
-        return
-    parts = call.data.split(":")
-    campaign_id = int(parts[1])
-    user_id = int(parts[2])
-    camp = await db.get_referral_campaign(campaign_id)
-    participant = await db.get_campaign_participant(campaign_id, user_id)
-    user = await db.get_user(user_id)
-    if not camp or not participant:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    act_st = participant.get("activation_status") or "pending"
-    act_emoji = {"activated": "✅", "ready": "🟢", "pending": "⏳"}.get(act_st, "⏳")
-    username = f"@{user['username']}" if user and user.get("username") else "nomalum"
-    cur = int(participant.get("current_referrals") or 0)
-    req = int(camp["required_referrals"])
-    bar_filled = min(10, round(cur / max(req, 1) * 10)) if req else 0
-    bar = "🟩" * bar_filled + "⬜" * (10 - bar_filled)
-    text = (
-        f"👤 <b>Ishtirokchi</b>\n\n"
-        f"User: {username} (<code>{user_id}</code>)\n"
-        f"Kampaniya: {html.escape(camp['name'])}\n\n"
-        f"📊 Progress: {cur}/{req}\n"
-        f"{bar}\n\n"
-        f"📧 Email: <code>{participant.get('customer_email') or '-'}</code>\n"
-        f"{act_emoji} Holat: <b>{act_st}</b>\n"
-        f"✅ Activated at: {participant.get('activated_at') or '-'}"
-    )
-    await call.message.edit_text(
-        text,
-        reply_markup=ref_campaign_participant_keyboard(campaign_id, user_id, act_st),
-        parse_mode="HTML",
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("adm_camp_activate:"))
-async def adm_ref_camp_activate(call: CallbackQuery, bot: Bot):
-    if not is_admin(call.from_user.id):
-        return
-    parts = call.data.split(":")
-    campaign_id = int(parts[1])
-    user_id = int(parts[2])
-    await db.mark_campaign_participant_activated(campaign_id, user_id)
-    camp = await db.get_referral_campaign(campaign_id)
-    camp_name = camp["name"] if camp else f"#{campaign_id}"
-    user = await db.get_user(user_id)
-    user_lang = (user["language"] or "uz") if user else "uz"
-    try:
-        if user_lang == "uz":
-            await bot.send_message(
-                user_id,
-                f"✅ <b>{html.escape(camp_name)}</b> kampaniyasi mukofotingiz aktivlashtirildi!\n\n"
-                f"Admin tez orada xizmatni yetkazadi.",
-                parse_mode="HTML",
-            )
-        else:
-            await bot.send_message(
-                user_id,
-                f"✅ Награда кампании <b>{html.escape(camp_name)}</b> активирована!\n\n"
-                f"Админ скоро доставит услугу.",
-                parse_mode="HTML",
-            )
-    except Exception:
-        pass
-    await call.answer("Aktivlashtirildi!")
-    # Refresh participant detail
-    participant = await db.get_campaign_participant(campaign_id, user_id)
-    act_st = participant.get("activation_status") or "activated"
-    act_emoji = "✅"
-    username = f"@{user['username']}" if user and user.get("username") else "nomalum"
-    text = (
-        f"👤 <b>Ishtirokchi</b>\n\n"
-        f"User: {username} (<code>{user_id}</code>)\n"
-        f"Kampaniya: {html.escape(camp_name)}\n\n"
-        f"📧 Email: <code>{participant.get('customer_email') or '-'}</code>\n"
-        f"{act_emoji} Holat: <b>{act_st}</b>\n"
-        f"✅ Activated at: {participant.get('activated_at') or '-'}"
-    )
-    await call.message.edit_text(
-        text,
-        reply_markup=ref_campaign_participant_keyboard(campaign_id, user_id, act_st),
-        parse_mode="HTML",
-    )
-
-
-# ---------- CAMPAIGN EDIT ----------
-
-@router.callback_query(F.data.startswith("adm_ref_camp_edit:"))
-async def adm_ref_camp_edit_start(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    campaign_id = int(call.data.split(":")[1])
-    camp = await db.get_referral_campaign(campaign_id)
-    if not camp:
-        await call.answer("Topilmadi", show_alert=True)
-        return
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Nom o'zgartirish", callback_data=f"camp_edit_field:{campaign_id}:name")],
-        [InlineKeyboardButton(text="📄 Tavsif o'zgartirish", callback_data=f"camp_edit_field:{campaign_id}:description")],
-        [InlineKeyboardButton(text="👥 Referal soni o'zgartirish", callback_data=f"camp_edit_field:{campaign_id}:required_referrals")],
-        [InlineKeyboardButton(text="⏳ Muddat (deadline)", callback_data=f"camp_edit_field:{campaign_id}:deadline")],
-        [InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"adm_ref_camp:{campaign_id}")],
-    ])
-    await call.message.edit_text(
-        f"✏️ <b>{html.escape(camp['name'])}</b> — qaysi maydonni o'zgartirasiz?",
-        reply_markup=kb, parse_mode="HTML"
-    )
-    await call.answer()
-
-
-@router.callback_query(F.data.startswith("camp_edit_field:"))
-async def adm_ref_camp_edit_field(call: CallbackQuery, state: FSMContext):
-    if not is_admin(call.from_user.id):
-        return
-    parts = call.data.split(":")
-    campaign_id = int(parts[1])
-    field = parts[2]
-    await state.update_data(camp_edit_id=campaign_id, camp_edit_field=field)
-    await state.set_state(CampaignEditState.value)
-    labels = {"name": "Yangi nom", "description": "Yangi tavsif", "required_referrals": "Yangi referal soni (raqam)", "deadline": "Yangi muddat (masalan: 1-Maygacha. O'chirish uchun 'yo\\'q' yozing)"}
-    await call.message.answer(f"{labels.get(field, 'Yangi qiymat')} kiriting:", reply_markup=cancel_keyboard())
-    await call.answer()
-
-
-@router.message(CampaignEditState.value)
-async def adm_ref_camp_edit_save(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    if message.text in ("❌ Bekor qilish", "Bekor qilish", "Отмена"):
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
-        return
-    data = await state.get_data()
-    campaign_id = data.get("camp_edit_id")
-    field = data.get("camp_edit_field")
-    value = message.text.strip()
-    if field == "required_referrals":
-        if not value.isdigit() or int(value) < 1:
-            await message.answer("Iltimos, musbat son kiriting:")
-            return
-        value = int(value)
-    elif field == "deadline":
-        if value.lower() in ("yo'q", "yoq", "net", "no", "skip", "/skip"):
-            value = None
-    import aiosqlite
-    from config import DB_PATH
-    async with aiosqlite.connect(DB_PATH) as conn:
-        await conn.execute(f"UPDATE referral_campaigns SET {field}=? WHERE id=?", (value, campaign_id))
-        await conn.commit()
-    await state.clear()
-    camp = await db.get_referral_campaign(campaign_id)
-    if camp:
-        stats = await db.get_campaign_stats(campaign_id)
-        status_text = "✅ Faol" if camp["is_active"] else "🔴 Nofaol"
-        reward_text = f"{camp['reward_value']} bonus" if camp["reward_type"] == "bonus" else "🎁 Xizmat"
-        deadline_val = camp.get("deadline") or "Yo'q"
-        text = (
-            f"✅ O'zgartirildi!\n\n"
-            f"🏆 <b>{html.escape(camp['name'])}</b>\n\n"
-            f"📝 {html.escape(camp.get('description') or '')}\n\n"
-            f"👥 Kerakli referal: {camp['required_referrals']}\n"
-            f"🎁 Mukofot: {reward_text}\n"
-            f"⏳ Muddat: {html.escape(deadline_val)}\n"
-            f"📊 Holat: {status_text}\n\n"
-            f"👤 Ishtirokchilar: {stats.get('total_participants', 0)}\n"
-            f"🏅 Mukofot olganlar: {stats.get('rewarded', 0)}"
-        )
-        await message.answer(text, reply_markup=ref_campaign_admin_detail_keyboard(campaign_id, camp["is_active"]), parse_mode="HTML")
-    else:
-        await message.answer("Kampaniya topilmadi.", reply_markup=admin_menu())

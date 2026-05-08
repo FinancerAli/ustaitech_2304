@@ -163,7 +163,8 @@ async def stock_monitor(bot: Bot):
         try:
             services = await db.get_services(only_active=True)
             for s in services:
-                stock = s.get("stock", -1)
+                s_dict = dict(s)
+                stock = s_dict.get("stock", -1)
                 if stock == 0:
                     text = (
                         f"⚠️ <b>Stock ogohlantirish!</b>\n\n"

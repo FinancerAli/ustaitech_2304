@@ -24,7 +24,7 @@ async def init_db():
         await db.execute(
             "CREATE TABLE IF NOT EXISTS orders "
             "(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, service_id INTEGER NOT NULL, "
-            "service_name TEXT NOT NULL, price INTEGER NOT NULL, status TEXT DEFAULT 'pending', "
+            "service_name TEXT NOT NULL, price INTEGER NOT NULL, status TEXT DEFAULT 'payment_waiting', "
             "note TEXT, receipt_file_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, discount INTEGER DEFAULT 0, "
             "final_price INTEGER, coupon_code TEXT, customer_email TEXT, "
@@ -148,6 +148,8 @@ async def init_db():
             ("orders", "payment_method", "TEXT"),
             ("orders", "payment_status", "TEXT DEFAULT 'pending'"),
             ("orders", "invoice_payload", "TEXT"),
+            ("orders", "telegram_payment_charge_id", "TEXT"),
+            ("orders", "paid_at", "TIMESTAMP"),
             ("services", "form_instruction", "TEXT"),
             ("services", "auto_deliver", "INTEGER DEFAULT 0"),
             ("coupons", "max_per_user", "INTEGER DEFAULT 0"),
@@ -230,6 +232,8 @@ async def init_db():
             await db.execute("UPDATE orders SET current_referrals = 0 WHERE current_referrals IS NULL")
             await db.execute("UPDATE orders SET referral_status = 'not_required' WHERE referral_status IS NULL OR referral_status = ''")
             await db.execute("UPDATE orders SET activation_status = 'pending' WHERE activation_status IS NULL OR activation_status = ''")
+            await db.execute("UPDATE orders SET payment_status = 'pending' WHERE payment_status IS NULL OR payment_status = ''")
+            await db.execute("UPDATE orders SET status = 'payment_waiting' WHERE status IS NULL OR status = ''")
 
             await db.commit()
         except Exception:
@@ -240,12 +244,104 @@ async def init_db():
             await db.execute(
                 "CREATE TABLE IF NOT EXISTS coupon_user_uses "
                 "(id INTEGER PRIMARY KEY AUTOINCREMENT, coupon_id INTEGER NOT NULL, "
-                "user_id INTEGER NOT NULL, used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
-                "UNIQUE(coupon_id, user_id))"
+                "user_id INTEGER NOT NULL, used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
             )
             await db.commit()
         except Exception:
             pass
+
+        # --- coupon_user_uses legacy UNIQUE(coupon_id,user_id) migration ---
+        try:
+            idx_rows = await (await db.execute("PRAGMA index_list(coupon_user_uses)")).fetchall()
+            has_unique_coupon_user = any(row[2] for row in idx_rows)
+            if has_unique_coupon_user:
+                await db.execute(
+                    "CREATE TABLE IF NOT EXISTS coupon_user_uses_new "
+                    "(id INTEGER PRIMARY KEY AUTOINCREMENT, coupon_id INTEGER NOT NULL, "
+                    "user_id INTEGER NOT NULL, used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+                )
+                await db.execute(
+                    "INSERT INTO coupon_user_uses_new (coupon_id, user_id, used_at) "
+                    "SELECT coupon_id, user_id, used_at FROM coupon_user_uses"
+                )
+                await db.execute("DROP TABLE coupon_user_uses")
+                await db.execute("ALTER TABLE coupon_user_uses_new RENAME TO coupon_user_uses")
+                await db.commit()
+        except Exception:
+            pass
+
+        # --- referral campaigns table ---
+        try:
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS referral_campaigns "
+                "(id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "name TEXT NOT NULL, "
+                "description TEXT, "
+                "required_referrals INTEGER NOT NULL DEFAULT 5, "
+                "reward_type TEXT NOT NULL DEFAULT 'bonus', "
+                "reward_value INTEGER NOT NULL DEFAULT 0, "
+                "is_active INTEGER DEFAULT 1, "
+                "deadline TEXT, "
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS referral_campaign_participants "
+                "(id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "campaign_id INTEGER NOT NULL, "
+                "user_id INTEGER NOT NULL, "
+                "current_referrals INTEGER DEFAULT 0, "
+                "reward_given INTEGER DEFAULT 0, "
+                "joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "UNIQUE(campaign_id, user_id))"
+            )
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_ref_campaign_user ON referral_campaign_participants(user_id)")
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_ref_campaign_id ON referral_campaign_participants(campaign_id)")
+            await db.commit()
+        except Exception:
+            pass
+
+        # --- campaign participant migrations ---
+        camp_part_migrations = [
+            ("referral_campaign_participants", "customer_email", "TEXT"),
+            ("referral_campaign_participants", "activation_status", "TEXT DEFAULT 'pending'"),
+            ("referral_campaign_participants", "activated_at", "TIMESTAMP"),
+        ]
+        for table, col, col_type in camp_part_migrations:
+            try:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_type}")
+                await db.commit()
+            except Exception:
+                pass
+
+        # Normalize existing NULL activation_status
+        try:
+            await db.execute("UPDATE referral_campaign_participants SET activation_status = 'pending' WHERE activation_status IS NULL")
+            await db.commit()
+        except Exception:
+            pass
+
+        # --- campaign reward_description migration ---
+        try:
+            await db.execute("ALTER TABLE referral_campaigns ADD COLUMN reward_description TEXT")
+            await db.commit()
+        except Exception:
+            pass
+
+        # --- referral campaign invites table (anti-fraud) ---
+        try:
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS referral_campaign_invites "
+                "(id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "campaign_id INTEGER NOT NULL, "
+                "inviter_id INTEGER NOT NULL, "
+                "invited_id INTEGER NOT NULL, "
+                "invited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "UNIQUE(campaign_id, invited_id))"
+            )
+            await db.commit()
+        except Exception:
+            pass
+
 
         try:
             await db.execute("CREATE INDEX IF NOT EXISTS idx_referral_invites_order ON referral_invites(order_id)")
@@ -282,7 +378,7 @@ def normalize_service(row) -> dict:
     # --- numeric fields ---
     d["price"] = int(d["price"]) if d.get("price") is not None else 0
     d["stock"] = int(d["stock"]) if d.get("stock") is not None else -1
-    d["active"] = int(d.get("active") or 1)
+    d["active"] = 1 if d.get("active") is None else int(d.get("active"))
     d["stars_price"] = int(d["stars_price"]) if d.get("stars_price") is not None else 0
     d["supports_stars"] = int(d["supports_stars"]) if d.get("supports_stars") is not None else 0
     d["required_referrals"] = int(d.get("required_referrals") or 0)
@@ -341,7 +437,7 @@ def normalize_coupon(row) -> dict:
     d["discount_percent"] = int(d.get("discount_percent") or 0)
     d["max_uses"] = int(d.get("max_uses") or 0)
     d["used_count"] = int(d.get("used_count") or 0)
-    d["is_active"] = int(d.get("is_active") or 1)
+    d["is_active"] = 1 if d.get("is_active") is None else int(d.get("is_active"))
     d["max_per_user"] = int(d.get("max_per_user") or 0)
     d.setdefault("service_id", None)
     return d
@@ -436,14 +532,36 @@ async def update_stock(service_id: int, new_stock: int):
 
 
 async def decrease_stock(service_id: int, amount: int = 1):
+    """Decrease finite stock. stock=-1 means unlimited and must stay untouched."""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE services SET stock = MAX(0, stock - ?) WHERE id=?", (amount, service_id))
+        await db.execute(
+            """
+            UPDATE services
+            SET stock = CASE
+                WHEN stock = -1 THEN -1
+                ELSE MAX(0, COALESCE(stock, 0) - ?)
+            END
+            WHERE id=?
+            """,
+            (amount, service_id),
+        )
         await db.commit()
 
 
 async def increase_stock(service_id: int, amount: int = 1):
+    """Return finite stock. stock=-1 means unlimited and must stay untouched."""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("UPDATE services SET stock = stock + ? WHERE id=?", (amount, service_id))
+        await db.execute(
+            """
+            UPDATE services
+            SET stock = CASE
+                WHEN stock = -1 THEN -1
+                ELSE COALESCE(stock, 0) + ?
+            END
+            WHERE id=?
+            """,
+            (amount, service_id),
+        )
         await db.commit()
 
 
@@ -501,7 +619,7 @@ async def get_services(only_active=True, category_id=None, query=None, limit=Non
 
 async def get_services_count(only_active=True, category_id=None, query=None):
     async with aiosqlite.connect(DB_PATH) as db:
-        conditions = []
+        conditions = ["(is_deleted IS NULL OR is_deleted=0)"]
         params = []
         if only_active:
             conditions.append("active=1")
@@ -527,6 +645,21 @@ async def get_service(service_id):
             FROM services s 
             LEFT JOIN service_promotions p ON s.id = p.service_id AND p.is_active = 1
             WHERE s.id=?
+        """
+        cursor = await db.execute(sql, (service_id,))
+        return await cursor.fetchone()
+
+
+async def get_public_service(service_id):
+    """User/Mini-App safe service lookup: active and not soft-deleted only."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        sql = """
+            SELECT s.*,
+                   p.cashback_percent, p.title as promo_title, p.is_active as promo_active
+            FROM services s
+            LEFT JOIN service_promotions p ON s.id = p.service_id AND p.is_active = 1
+            WHERE s.id=? AND s.active=1 AND (s.is_deleted IS NULL OR s.is_deleted=0)
         """
         cursor = await db.execute(sql, (service_id,))
         return await cursor.fetchone()
@@ -661,6 +794,18 @@ async def get_categories():
         cursor = await db.execute("SELECT * FROM categories ORDER BY id")
         rows = await cursor.fetchall()
         return [normalize_category(r) for r in rows]
+
+
+async def get_category_min_prices():
+    """Return dict {category_id: min_price} for active services."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT category_id, MIN(price) as min_price FROM services "
+            "WHERE active=1 AND (is_deleted IS NULL OR is_deleted=0) "
+            "GROUP BY category_id"
+        )
+        rows = await cursor.fetchall()
+        return {row[0]: row[1] for row in rows}
 
 
 async def get_category(cat_id):
@@ -807,18 +952,18 @@ async def create_order(user_id, service_id, service_name, price, note="",
                        customer_email=None, required_referrals=0, current_referrals=0,
                        referral_status="not_required", referral_code=None, referral_link=None,
                        referral_deadline_at=None, activation_status="pending",
-                       activation_ready_at=None, activated_at=None):
+                       activation_ready_at=None, activated_at=None, status="payment_waiting"):
     if final_price is None:
         final_price = price * quantity - (price * quantity * discount // 100)
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO orders (user_id, service_id, service_name, price, note, discount, final_price, coupon_code, bonus_used, quantity, customer_email, required_referrals, current_referrals, referral_status, referral_code, referral_link, referral_deadline_at, activation_status, activation_ready_at, activated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO orders (user_id, service_id, service_name, price, note, discount, final_price, coupon_code, bonus_used, quantity, customer_email, required_referrals, current_referrals, referral_status, referral_code, referral_link, referral_deadline_at, activation_status, activation_ready_at, activated_at, status)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 user_id, service_id, service_name, price, note, discount, final_price, coupon_code,
                 bonus_used, quantity, customer_email, required_referrals, current_referrals,
                 referral_status, referral_code, referral_link, referral_deadline_at,
-                activation_status, activation_ready_at, activated_at,
+                activation_status, activation_ready_at, activated_at, status,
             ),
         )
         await db.commit()
@@ -963,6 +1108,49 @@ async def get_referral_invites(order_id: int):
         return [dict(r) for r in rows]
 
 
+async def get_all_campaign_participants(campaign_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT p.*, u.username, u.full_name "
+            "FROM referral_campaign_participants p "
+            "LEFT JOIN users u ON p.user_id = u.id "
+            "WHERE p.campaign_id = ? "
+            "ORDER BY p.reward_given DESC, p.current_referrals DESC",
+            (campaign_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def record_campaign_invite(campaign_id: int, inviter_id: int, invited_id: int) -> bool:
+    """
+    Records an invite and returns True if successful (meaning it's a new invite for this campaign).
+    Returns False if the invited_id has already been invited to this campaign.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO referral_campaign_invites (campaign_id, inviter_id, invited_id) VALUES (?, ?, ?)",
+                (campaign_id, inviter_id, invited_id)
+            )
+            await db.commit()
+            return True
+    except Exception:
+        # IntegrityError typically means they were already invited
+        return False
+
+
+async def get_user_completed_campaign_ids(user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT campaign_id FROM referral_campaign_participants WHERE user_id = ? AND reward_given = 1",
+            (user_id,)
+        )
+        rows = await cursor.fetchall()
+        return [r[0] for r in rows]
+
+
 async def get_referral_orders(referral_status=None, activation_status=None, limit=100):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -998,9 +1186,18 @@ def build_referral_deadline(days: int):
 
 
 async def set_order_receipt(order_id, file_id):
+    """Attach manual receipt and move the order into admin verification queue."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE orders SET receipt_file_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            """
+            UPDATE orders
+            SET receipt_file_id=?,
+                payment_method='manual',
+                payment_status='submitted',
+                status='paid_waiting_admin',
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
             (file_id, order_id),
         )
         await db.commit()
@@ -1015,9 +1212,48 @@ async def update_order_status(order_id, status):
 async def update_fulfillment_status(order_id, fulfillment_status):
     async with aiosqlite.connect(DB_PATH) as db:
         extra = ", delivered_at=CURRENT_TIMESTAMP" if fulfillment_status == "delivered" else ""
+        status_extra = ""
+        if fulfillment_status == "processing":
+            status_extra = ", status='processing'"
+        elif fulfillment_status == "delivered":
+            status_extra = ", status='delivered'"
         await db.execute(
-            f"UPDATE orders SET fulfillment_status=?, updated_at=CURRENT_TIMESTAMP{extra} WHERE id=?",
+            f"UPDATE orders SET fulfillment_status=?, updated_at=CURRENT_TIMESTAMP{extra}{status_extra} WHERE id=?",
             (fulfillment_status, order_id)
+        )
+        await db.commit()
+
+
+async def confirm_order_for_processing(order_id: int):
+    """Admin confirmation: mark payment accepted and move order to delivery processing."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE orders
+            SET status='processing',
+                payment_status='paid',
+                fulfillment_status='processing',
+                paid_at=COALESCE(paid_at, CURRENT_TIMESTAMP),
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (order_id,),
+        )
+        await db.commit()
+
+
+async def set_order_stars_invoice(order_id: int, payload: str):
+    """Remember Stars invoice payload before payment is completed."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            UPDATE orders
+            SET payment_method='stars',
+                invoice_payload=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=? AND COALESCE(payment_status, 'pending') != 'paid'
+            """,
+            (payload, order_id),
         )
         await db.commit()
 
@@ -1034,7 +1270,7 @@ async def mark_order_paid_with_stars(order_id: int, charge_id: str, payload: str
         
         await db.execute(
             """UPDATE orders 
-               SET payment_method='stars', payment_status='paid', telegram_payment_charge_id=?,
+               SET payment_method='stars', payment_status='paid', status='paid_waiting_admin', telegram_payment_charge_id=?,
                    invoice_payload=?, paid_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
                WHERE id=?""",
             (charge_id, payload, order_id)
@@ -1065,7 +1301,7 @@ async def get_user_orders(user_id):
 async def get_user_total_spent(user_id):
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT COALESCE(SUM(final_price), 0) FROM orders WHERE user_id=? AND status='confirmed'",
+            "SELECT COALESCE(SUM(final_price), 0) FROM orders WHERE user_id=? AND status IN ('confirmed','processing','delivered')",
             (user_id,),
         )
         row = await cursor.fetchone()
@@ -1088,7 +1324,7 @@ async def get_confirmed_customers(limit=50, offset=0):
                 (
                     SELECT o2.id
                     FROM orders o2
-                    WHERE o2.user_id = u.id AND o2.status = 'confirmed'
+                    WHERE o2.user_id = u.id AND o2.status IN ('confirmed','processing','delivered')
                     ORDER BY o2.created_at DESC, o2.id DESC
                     LIMIT 1
                 ) AS last_order_id,
@@ -1096,14 +1332,14 @@ async def get_confirmed_customers(limit=50, offset=0):
                     SELECT s.name
                     FROM orders o3
                     LEFT JOIN services s ON s.id = o3.service_id
-                    WHERE o3.user_id = u.id AND o3.status = 'confirmed'
+                    WHERE o3.user_id = u.id AND o3.status IN ('confirmed','processing','delivered')
                     ORDER BY o3.created_at DESC, o3.id DESC
                     LIMIT 1
                 ) AS last_service_name
             FROM users u
             JOIN orders o
               ON o.user_id = u.id
-             AND o.status = 'confirmed'
+             AND o.status IN ('confirmed','processing','delivered')
             GROUP BY u.id, u.username, u.full_name, u.bonus_balance
             ORDER BY MAX(o.created_at) DESC, MAX(o.id) DESC
             LIMIT ? OFFSET ?
@@ -1122,7 +1358,7 @@ async def get_confirmed_customers_count():
             FROM (
                 SELECT o.user_id
                 FROM orders o
-                WHERE o.status = 'confirmed'
+                WHERE o.status IN ('confirmed','processing','delivered')
                 GROUP BY o.user_id
             ) t
             """
@@ -1147,7 +1383,7 @@ async def get_confirmed_customer_detail(user_id):
                 (
                     SELECT o2.id
                     FROM orders o2
-                    WHERE o2.user_id = u.id AND o2.status = 'confirmed'
+                    WHERE o2.user_id = u.id AND o2.status IN ('confirmed','processing','delivered')
                     ORDER BY o2.created_at DESC, o2.id DESC
                     LIMIT 1
                 ) AS last_order_id,
@@ -1155,14 +1391,14 @@ async def get_confirmed_customer_detail(user_id):
                     SELECT s.name
                     FROM orders o3
                     LEFT JOIN services s ON s.id = o3.service_id
-                    WHERE o3.user_id = u.id AND o3.status = 'confirmed'
+                    WHERE o3.user_id = u.id AND o3.status IN ('confirmed','processing','delivered')
                     ORDER BY o3.created_at DESC, o3.id DESC
                     LIMIT 1
                 ) AS last_service_name
             FROM users u
             JOIN orders o
               ON o.user_id = u.id
-             AND o.status = 'confirmed'
+             AND o.status IN ('confirmed','processing','delivered')
             WHERE u.id = ?
             GROUP BY u.id, u.username, u.full_name, u.bonus_balance
             """,
@@ -1178,7 +1414,7 @@ async def get_pending_orders():
         cursor = await db.execute(
             "SELECT o.*, u.username, u.full_name FROM orders o "
             "LEFT JOIN users u ON o.user_id = u.id "
-            "WHERE o.status='pending' ORDER BY o.created_at DESC"
+            "WHERE o.status IN ('pending', 'payment_waiting', 'paid_waiting_admin') ORDER BY o.created_at DESC"
         )
         rows = await cursor.fetchall()
         return [normalize_order(r) for r in rows]
@@ -1201,13 +1437,13 @@ async def get_stats():
     async with aiosqlite.connect(DB_PATH) as db:
         users = (await (await db.execute("SELECT COUNT(*) FROM users")).fetchone())[0]
         total_orders = (await (await db.execute("SELECT COUNT(*) FROM orders")).fetchone())[0]
-        pending = (await (await db.execute("SELECT COUNT(*) FROM orders WHERE status='pending'")).fetchone())[0]
-        confirmed = (await (await db.execute("SELECT COUNT(*) FROM orders WHERE status='confirmed'")).fetchone())[0]
+        pending = (await (await db.execute("SELECT COUNT(*) FROM orders WHERE status IN ('pending','payment_waiting','paid_waiting_admin')")).fetchone())[0]
+        confirmed = (await (await db.execute("SELECT COUNT(*) FROM orders WHERE status IN ('confirmed','processing','delivered')")).fetchone())[0]
         rejected = (await (await db.execute("SELECT COUNT(*) FROM orders WHERE status='rejected'")).fetchone())[0]
-        revenue_row = await (await db.execute("SELECT SUM(final_price) FROM orders WHERE status='confirmed'")).fetchone()
+        revenue_row = await (await db.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed','processing','delivered')")).fetchone()
         revenue = revenue_row[0] or 0
         
-        today_rev = await (await db.execute("SELECT SUM(final_price) FROM orders WHERE status='confirmed' AND date(created_at) = date('now', 'localtime')")).fetchone()
+        today_rev = await (await db.execute("SELECT SUM(final_price) FROM orders WHERE status IN ('confirmed','processing','delivered') AND date(created_at) = date('now', 'localtime')")).fetchone()
         today_revenue = today_rev[0] or 0
         
         conversion = round((confirmed / total_orders) * 100, 1) if total_orders > 0 else 0
@@ -1227,7 +1463,7 @@ async def get_analytics():
         # Weekly revenue (last 7 days)
         row = await (await conn.execute(
             "SELECT COALESCE(SUM(final_price), 0) as rev, COUNT(*) as cnt "
-            "FROM orders WHERE status='confirmed' AND created_at >= datetime('now', '-7 days', 'localtime')"
+            "FROM orders WHERE status IN ('confirmed','processing','delivered') AND created_at >= datetime('now', '-7 days', 'localtime')"
         )).fetchone()
         week_revenue = row["rev"] or 0
         week_orders = row["cnt"] or 0
@@ -1235,7 +1471,7 @@ async def get_analytics():
         # Monthly revenue (last 30 days)
         row = await (await conn.execute(
             "SELECT COALESCE(SUM(final_price), 0) as rev, COUNT(*) as cnt "
-            "FROM orders WHERE status='confirmed' AND created_at >= datetime('now', '-30 days', 'localtime')"
+            "FROM orders WHERE status IN ('confirmed','processing','delivered') AND created_at >= datetime('now', '-30 days', 'localtime')"
         )).fetchone()
         month_revenue = row["rev"] or 0
         month_orders = row["cnt"] or 0
@@ -1243,7 +1479,7 @@ async def get_analytics():
         # Top 5 services by confirmed sales
         top_services = await (await conn.execute(
             "SELECT service_name, COUNT(*) as cnt, SUM(final_price) as rev "
-            "FROM orders WHERE status='confirmed' "
+            "FROM orders WHERE status IN ('confirmed','processing','delivered') "
             "GROUP BY service_id ORDER BY cnt DESC LIMIT 5"
         )).fetchall()
 
@@ -1251,20 +1487,20 @@ async def get_analytics():
         top_customers = await (await conn.execute(
             "SELECT o.user_id, u.username, u.full_name, COUNT(*) as cnt, SUM(o.final_price) as spent "
             "FROM orders o LEFT JOIN users u ON o.user_id = u.id "
-            "WHERE o.status='confirmed' "
+            "WHERE o.status IN ('confirmed','processing','delivered') "
             "GROUP BY o.user_id ORDER BY spent DESC LIMIT 5"
         )).fetchall()
 
         # Daily revenue for last 7 days
         daily_rows = await (await conn.execute(
             "SELECT date(created_at) as d, COALESCE(SUM(final_price), 0) as rev, COUNT(*) as cnt "
-            "FROM orders WHERE status='confirmed' AND created_at >= datetime('now', '-7 days', 'localtime') "
+            "FROM orders WHERE status IN ('confirmed','processing','delivered') AND created_at >= datetime('now', '-7 days', 'localtime') "
             "GROUP BY date(created_at) ORDER BY d DESC"
         )).fetchall()
 
         # Average order value
         avg_row = await (await conn.execute(
-            "SELECT AVG(final_price) as avg_val FROM orders WHERE status='confirmed' AND final_price > 0"
+            "SELECT AVG(final_price) as avg_val FROM orders WHERE status IN ('confirmed','processing','delivered') AND final_price > 0"
         )).fetchone()
         avg_order = int(avg_row["avg_val"] or 0)
 
@@ -1293,9 +1529,9 @@ async def get_crm_segments():
         rows = await (await conn.execute("""
             SELECT u.id, u.username, u.full_name, u.created_at as user_created,
                    COUNT(o.id) as order_count,
-                   COALESCE(SUM(CASE WHEN o.status='confirmed' THEN o.final_price ELSE 0 END), 0) as total_spent,
+                   COALESCE(SUM(CASE WHEN o.status IN ('confirmed','processing','delivered') THEN o.final_price ELSE 0 END), 0) as total_spent,
                    MAX(o.created_at) as last_order_at,
-                   SUM(CASE WHEN o.status='confirmed' THEN 1 ELSE 0 END) as confirmed_count
+                   SUM(CASE WHEN o.status IN ('confirmed','processing','delivered') THEN 1 ELSE 0 END) as confirmed_count
             FROM users u
             LEFT JOIN orders o ON u.id = o.user_id
             GROUP BY u.id
@@ -1407,11 +1643,13 @@ async def get_ticket_stats():
 
 # ??? PAYMENTS ???
 
-async def create_payment(order_id, user_id, method="manual", amount=0, receipt_file_id=None, charge_id=None, payload=None):
+async def create_payment(order_id, user_id, method="manual", amount=0, receipt_file_id=None, charge_id=None, payload=None, status="pending", paid_at=None):
+    if paid_at == "CURRENT_TIMESTAMP":
+        paid_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO payments (order_id, user_id, method, amount, receipt_file_id, charge_id, payload) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (order_id, user_id, method, amount, receipt_file_id, charge_id, payload)
+            "INSERT INTO payments (order_id, user_id, method, status, amount, receipt_file_id, charge_id, payload, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (order_id, user_id, method, status, amount, receipt_file_id, charge_id, payload, paid_at)
         )
         await db.commit()
         return cursor.lastrowid
@@ -1565,16 +1803,13 @@ async def check_coupon_user_limit(coupon_id: int, user_id: int, max_per_user: in
 
 
 async def record_coupon_use(coupon_id: int, user_id: int):
-    """Record that a user used a coupon."""
+    """Record one coupon use. Multiple rows are allowed for max_per_user > 1."""
     async with aiosqlite.connect(DB_PATH) as db:
-        try:
-            await db.execute(
-                "INSERT INTO coupon_user_uses (coupon_id, user_id) VALUES (?, ?)",
-                (coupon_id, user_id),
-            )
-            await db.commit()
-        except Exception:
-            pass  # UNIQUE constraint if already exists
+        await db.execute(
+            "INSERT INTO coupon_user_uses (coupon_id, user_id) VALUES (?, ?)",
+            (coupon_id, user_id),
+        )
+        await db.commit()
 
 
 async def set_auto_deliver(service_id: int, value: int):
@@ -1646,7 +1881,7 @@ async def get_bonus_log(user_id, limit=10):
 async def get_user_confirmed_orders_count(user_id):
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "SELECT COUNT(*) FROM orders WHERE user_id=? AND status='confirmed'",
+            "SELECT COUNT(*) FROM orders WHERE user_id=? AND status IN ('confirmed','processing','delivered')",
             (user_id,),
         )
         row = await cursor.fetchone()
@@ -1751,3 +1986,233 @@ async def clear_cart(user_id: int):
         await db.execute("DELETE FROM cart_items WHERE user_id=?", (user_id,))
         await db.commit()
 
+
+# ═══════════════════════════════════════════════════
+# REFERRAL CAMPAIGNS
+# ═══════════════════════════════════════════════════
+
+async def create_referral_campaign(name: str, description: str, required_referrals: int,
+                                   reward_type: str, reward_value: int, reward_description: str = None, deadline: str = None) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO referral_campaigns (name, description, required_referrals, reward_type, reward_value, reward_description, deadline) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, description, required_referrals, reward_type, reward_value, reward_description, deadline)
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def get_active_referral_campaigns():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM referral_campaigns WHERE is_active=1 ORDER BY id DESC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_all_referral_campaigns():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM referral_campaigns ORDER BY id DESC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_referral_campaign(campaign_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM referral_campaigns WHERE id=?", (campaign_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def toggle_referral_campaign(campaign_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE referral_campaigns SET is_active = CASE WHEN is_active=1 THEN 0 ELSE 1 END WHERE id=?",
+            (campaign_id,)
+        )
+        await db.commit()
+
+
+async def delete_referral_campaign(campaign_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM referral_campaigns WHERE id=?", (campaign_id,))
+        await db.execute("DELETE FROM referral_campaign_participants WHERE campaign_id=?", (campaign_id,))
+        await db.commit()
+
+
+async def get_campaign_participant(campaign_id: int, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM referral_campaign_participants WHERE campaign_id=? AND user_id=?",
+            (campaign_id, user_id)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def join_campaign(campaign_id: int, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            await db.execute(
+                "INSERT INTO referral_campaign_participants (campaign_id, user_id) VALUES (?, ?)",
+                (campaign_id, user_id)
+            )
+            await db.commit()
+            return True
+        except Exception:
+            return False
+
+
+async def increment_campaign_referral(campaign_id: int, user_id: int) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE referral_campaign_participants SET current_referrals = current_referrals + 1 "
+            "WHERE campaign_id=? AND user_id=?",
+            (campaign_id, user_id)
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT current_referrals FROM referral_campaign_participants WHERE campaign_id=? AND user_id=?",
+            (campaign_id, user_id)
+        )
+        row = await cursor.fetchone()
+        return row[0] if row else 0
+
+
+async def mark_campaign_reward_given(campaign_id: int, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE referral_campaign_participants SET reward_given=1 WHERE campaign_id=? AND user_id=?",
+            (campaign_id, user_id)
+        )
+        await db.commit()
+
+
+async def get_campaign_stats(campaign_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        total = (await (await db.execute(
+            "SELECT COUNT(*) FROM referral_campaign_participants WHERE campaign_id=?", (campaign_id,)
+        )).fetchone())[0]
+        rewarded = (await (await db.execute(
+            "SELECT COUNT(*) FROM referral_campaign_participants WHERE campaign_id=? AND reward_given=1", (campaign_id,)
+        )).fetchone())[0]
+        total_refs = (await (await db.execute(
+            "SELECT COALESCE(SUM(current_referrals),0) FROM referral_campaign_participants WHERE campaign_id=?", (campaign_id,)
+        )).fetchone())[0]
+        in_progress = total - rewarded
+        return {"total_participants": total, "participants": total, "rewarded": rewarded, "in_progress": in_progress, "total_referrals": total_refs}
+
+
+async def get_user_active_campaigns(user_id: int):
+    """Returns campaigns user is participating in with their progress."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT c.*, p.current_referrals, p.reward_given, p.joined_at
+            FROM referral_campaigns c
+            JOIN referral_campaign_participants p ON c.id = p.campaign_id
+            WHERE p.user_id=? AND c.is_active=1
+            ORDER BY c.id DESC
+            """,
+            (user_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def set_campaign_participant_email(campaign_id: int, user_id: int, email: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE referral_campaign_participants SET customer_email=? WHERE campaign_id=? AND user_id=?",
+            (email, campaign_id, user_id)
+        )
+        await db.commit()
+
+
+async def mark_campaign_participant_activated(campaign_id: int, user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE referral_campaign_participants SET activation_status='activated', activated_at=CURRENT_TIMESTAMP WHERE campaign_id=? AND user_id=?",
+            (campaign_id, user_id)
+        )
+        await db.commit()
+
+
+async def set_campaign_participant_activation_status(campaign_id: int, user_id: int, status: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE referral_campaign_participants SET activation_status=? WHERE campaign_id=? AND user_id=?",
+            (status, campaign_id, user_id)
+        )
+        await db.commit()
+
+
+async def get_campaign_completed_participants(campaign_id: int):
+    """Get participants who completed the target (reward_given=1)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT p.*, u.username, u.full_name FROM referral_campaign_participants p "
+            "LEFT JOIN users u ON p.user_id = u.id "
+            "WHERE p.campaign_id=? AND p.reward_given=1 ORDER BY p.activated_at DESC, p.id DESC",
+            (campaign_id,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+async def get_all_pending_campaign_activations():
+    """Get all completed participants awaiting admin activation."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT p.*, c.name as campaign_name, c.required_referrals, c.reward_type, c.reward_value, "
+            "u.username, u.full_name "
+            "FROM referral_campaign_participants p "
+            "JOIN referral_campaigns c ON p.campaign_id = c.id "
+            "LEFT JOIN users u ON p.user_id = u.id "
+            "WHERE p.reward_given=1 AND (p.activation_status IS NULL OR p.activation_status='pending' OR p.activation_status='ready') "
+            "ORDER BY p.id DESC"
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+async def execute_sql(query: str, params: tuple = ()):
+    """Generic helper for simple UPDATE/INSERT queries."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(query, params)
+        await db.commit()
+
+
+async def get_bonus_monitoring():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        c1 = await db.execute("SELECT SUM(bonus_balance) as total_bonus FROM users WHERE bonus_balance > 0")
+        total_bonus_row = await c1.fetchone()
+        total_bonus = total_bonus_row['total_bonus'] if total_bonus_row and total_bonus_row['total_bonus'] else 0
+        
+        c2 = await db.execute("SELECT id, username, full_name, bonus_balance FROM users WHERE bonus_balance > 0 ORDER BY bonus_balance DESC LIMIT 10")
+        top_users_rows = await c2.fetchall()
+        top_users = [dict(r) for r in top_users_rows]
+        
+        c3 = await db.execute("SELECT user_id, amount, reason, created_at FROM bonus_transactions ORDER BY created_at DESC LIMIT 5")
+        recent_txs_rows = await c3.fetchall()
+        recent_txs = [dict(r) for r in recent_txs_rows]
+        
+        return {
+            'total_bonus': total_bonus,
+            'top_users': top_users,
+            'recent_txs': recent_txs
+        }

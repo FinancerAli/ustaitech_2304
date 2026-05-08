@@ -116,6 +116,7 @@ TEXTS = {
         "btn_promos": "🎉 Aksiyalar",
         "btn_faq": "💡 Yordam / FAQ",
         "btn_support": "💬 Operatorga yozish",
+        "btn_ai_chat": "🤖 AI yordamchi",
         "btn_search": "🔍 Qidiruv",
         "search_prompt": "🔍 Xizmat nomini kiriting:",
         "search_empty": "Bunday nomdagi xizmat topilmadi.",
@@ -189,6 +190,27 @@ TEXTS = {
         ),
         "btn_confirm_order": "🛍 Xaridni tasdiqlash",
         "btn_channel": "📢 Kanalga o'tish",
+        # Referral campaigns (new standalone section)
+        "btn_ref_campaign": "🎯 Referral dasturi",
+        "ref_campaign_title": "🎯 <b>Referral dasturi</b>\n\nDo'stlaringizni taklif qiling va mukofot qozonib boring!",
+        "ref_campaign_no_active": "Hozircha faol kampaniyalar yo'q. Tez orada yangi aksiyalar bo'ladi!",
+        "ref_campaign_item": (
+            "🏆 <b>{name}</b>\n"
+            "{desc}\n\n"
+            "👥 Kerakli do'stlar: <b>{required}</b> ta\n"
+            "🎁 Mukofot: <b>{reward}</b>\n"
+        ),
+        "ref_campaign_joined": "✅ Siz bu kampaniyaga qo'shildingiz!\n\nSizning taklifnoma havolangiz:\n<code>{link}</code>",
+        "ref_campaign_already_joined": "✅ Siz allaqachon bu kampaniyada ishtirok etmoqdasiz.\n\nProgress: <b>{current}/{required}</b> ta\nHavola: <code>{link}</code>",
+        "ref_campaign_progress": "📊 Progress: <b>{current}/{required}</b> ta\n{bar}",
+        "ref_campaign_reward_given": "🎉 <b>Tabriklaymiz!</b> Kampaniya mukofotingiz berildi:\n🎁 {reward}",
+        "ref_campaign_invite_text": (
+            "🎯 <b>Do'stingizni taklif qiling!</b>\n\n"
+            "Kampaniya: <b>{name}</b>\n"
+            "Sizning havolangiz:\n<code>{link}</code>\n\n"
+            "Progress: <b>{current}/{required}</b> ta"
+        ),
+        "ref_campaign_complete": "🎉 Tabriklaymiz! Siz <b>{required}</b> ta do'st taklif qildingiz! Mukofot tez orada beriladi.",
         "ask_custom_quantity": "Iltimos, kerakli miqdorni raqamlarda yozib yuboring:",
         "service_desc_uz_prompt": "📝 Xizmat tavsifini kiriting (O'zbek tilida):",
         "service_desc_ru_prompt": "📝 Xizmat tavsifini kiriting (Rus tilida):",
@@ -316,6 +338,7 @@ TEXTS = {
         "btn_top_services": "⭐ Топ услуги",
         "btn_promos": "🎉 Акции",
         "btn_support": "💬 Написать оператору",
+        "btn_ai_chat": "🤖 ИИ Помощник",
         "btn_search": "🔍 Поиск",
         "search_prompt": "🔍 Введите название услуги:",
         "search_empty": "Услуга с таким названием не найдена.",
@@ -382,6 +405,27 @@ TEXTS = {
         ),
         "btn_confirm_order": "🛍 Подтвердить покупку",
         "btn_channel": "📢 Перейти в канал",
+        # Referral campaigns (new standalone section)
+        "btn_ref_campaign": "🎯 Реферальная программа",
+        "ref_campaign_title": "🎯 <b>Реферальная программа</b>\n\nПриглашайте друзей и получайте призы!",
+        "ref_campaign_no_active": "Активных кампаний пока нет. Скоро появятся новые акции!",
+        "ref_campaign_item": (
+            "🏆 <b>{name}</b>\n"
+            "{desc}\n\n"
+            "👥 Нужно друзей: <b>{required}</b>\n"
+            "🎁 Приз: <b>{reward}</b>\n"
+        ),
+        "ref_campaign_joined": "✅ Вы вступили в кампанию!\n\nВаша реферальная ссылка:\n<code>{link}</code>",
+        "ref_campaign_already_joined": "✅ Вы уже участвуете в этой кампании.\n\nПрогресс: <b>{current}/{required}</b>\nСсылка: <code>{link}</code>",
+        "ref_campaign_progress": "📊 Прогресс: <b>{current}/{required}</b>\n{bar}",
+        "ref_campaign_reward_given": "🎉 <b>Поздравляем!</b> Ваш приз выдан:\n🎁 {reward}",
+        "ref_campaign_invite_text": (
+            "🎯 <b>Пригласите друга!</b>\n\n"
+            "Кампания: <b>{name}</b>\n"
+            "Ваша ссылка:\n<code>{link}</code>\n\n"
+            "Прогресс: <b>{current}/{required}</b>"
+        ),
+        "ref_campaign_complete": "🎉 Поздравляем! Вы пригласили <b>{required}</b> друзей! Приз скоро будет выдан.",
         "ask_custom_quantity": "Пожалуйста, введите нужное количество цифрами:",
         "service_desc_uz_prompt": "📝 Введите описание услуги (на узбекском):",
         "service_desc_ru_prompt": "📝 Введите описание услуги (на русском):",
