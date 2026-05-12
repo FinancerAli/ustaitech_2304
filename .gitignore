@@ -14,6 +14,7 @@ venv/
 .vscode/
 *.swp
 *.swo
+.codex/
 
 # ─── Debug / Temp scripts ───
 check_bonus.py
