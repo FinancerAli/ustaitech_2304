@@ -1,8 +1,10 @@
 import asyncio
+import fcntl
 import os
 import socket
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Any, Awaitable, Callable
 
 from aiogram import Bot, Dispatcher
@@ -26,6 +28,26 @@ logging.basicConfig(
         logging.FileHandler("bot.log", encoding="utf-8"),
     ],
 )
+
+INSTANCE_LOCK_FD = None
+REPORT_TZ = ZoneInfo("Asia/Tashkent")
+
+
+def acquire_instance_lock() -> bool:
+    """Allow only one bot process at a time."""
+    global INSTANCE_LOCK_FD
+    lock_path = os.path.join(os.path.dirname(__file__), ".bot.lock")
+    fd = open(lock_path, "w")
+    try:
+        fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fd.close()
+        return False
+
+    fd.write(f"pid={os.getpid()}\nstarted_at={datetime.now().isoformat()}\n")
+    fd.flush()
+    INSTANCE_LOCK_FD = fd
+    return True
 
 
 class BlockCheckMiddleware:
@@ -77,10 +99,10 @@ async def subscription_checker(bot: Bot):
         await asyncio.sleep(86400) # Check once a day
 
 async def scheduled_backup(bot: Bot):
-    """Send DB backup to admin daily at 03:00."""
+    """Send DB backup to admin daily at 03:00 Toshkent vaqti."""
     from utils.backup import send_backup
     while True:
-        now = datetime.now()
+        now = datetime.now(REPORT_TZ)
         target = now.replace(hour=3, minute=0, second=0, microsecond=0)
         if target <= now:
             target += timedelta(days=1)
@@ -93,9 +115,9 @@ async def scheduled_backup(bot: Bot):
 
 
 async def daily_report(bot: Bot):
-    """Send daily stats report to admin at 22:00."""
+    """Send daily stats report to admin at 22:00 Toshkent vaqti."""
     while True:
-        now = datetime.now()
+        now = datetime.now(REPORT_TZ)
         target = now.replace(hour=22, minute=0, second=0, microsecond=0)
         if target <= now:
             target += timedelta(days=1)
@@ -108,7 +130,7 @@ async def daily_report(bot: Bot):
 
             # ── Section 1: Basic Stats ──
             text = (
-                "📊 <b>Kunlik hisobot — 22:00</b>\n\n"
+                "📊 <b>Kunlik hisobot — 22:00 (Toshkent vaqti)</b>\n\n"
                 f"👥 Foydalanuvchilar: <b>{stats['users']}</b>\n"
                 f"📦 Jami buyurtmalar: <b>{stats['total_orders']}</b>\n"
                 f"⏳ Kutilayotgan: <b>{stats['pending']}</b>\n"
@@ -181,6 +203,10 @@ async def stock_monitor(bot: Bot):
 
 
 async def main():
+    if not acquire_instance_lock():
+        logging.error("Another bot instance already running. Exit.")
+        return
+
     await db.init_db()
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))

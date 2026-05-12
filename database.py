@@ -172,6 +172,8 @@ async def init_db():
             ("orders", "activation_status", "TEXT DEFAULT 'pending'"),
             ("orders", "activation_ready_at", "TEXT"),
             ("orders", "activated_at", "TEXT"),
+            ("services", "icon_emoji_id", "TEXT"),
+            ("categories", "icon_emoji_id", "TEXT"),
         ]
         for table, col, col_type in migrations:
             try:
@@ -501,14 +503,14 @@ async def delete_promo(promo_id: int):
 
 # SERVICES
 
-async def add_service(name, description, price, category_id=None, image_file_id=None, delivery_content=None, stock=0, description_uz=None, description_ru=None, stars_price=0, supports_stars=0, delivery_mode="manual", required_referrals=0, requires_email=0, referral_deadline_days=0):
+async def add_service(name, description, price, category_id=None, image_file_id=None, delivery_content=None, stock=0, description_uz=None, description_ru=None, stars_price=0, supports_stars=0, delivery_mode="manual", required_referrals=0, requires_email=0, referral_deadline_days=0, icon_emoji_id=None):
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO services (name, description, description_uz, description_ru, price, category_id, image_file_id, delivery_content, stock, stars_price, supports_stars, delivery_mode, required_referrals, requires_email, referral_deadline_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO services (name, description, description_uz, description_ru, price, category_id, image_file_id, delivery_content, stock, stars_price, supports_stars, delivery_mode, required_referrals, requires_email, referral_deadline_days, icon_emoji_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 name, description, description_uz or description, description_ru or description,
                 price, category_id, image_file_id, delivery_content, stock, stars_price, supports_stars,
-                delivery_mode, required_referrals, requires_email, referral_deadline_days,
+                delivery_mode, required_referrals, requires_email, referral_deadline_days, icon_emoji_id,
             ),
         )
         await db.commit()

@@ -9,6 +9,31 @@ import datetime
 import sqlite3
 import html
 
+
+def _extract_custom_emoji_html(message) -> str:
+    """Extract text from message preserving custom emoji as <tg-emoji> HTML tags."""
+    text = message.text or ""
+    if not text:
+        return ""
+    entities = message.entities or []
+    custom_emojis = [e for e in entities if e.type == "custom_emoji"]
+    if not custom_emojis:
+        return text.strip()
+    # Build HTML by replacing custom emoji entities
+    custom_emojis.sort(key=lambda e: e.offset)
+    result = []
+    last_end = 0
+    for ent in custom_emojis:
+        # Add text before this entity
+        result.append(html.escape(text[last_end:ent.offset]))
+        # Add the custom emoji HTML tag
+        emoji_text = text[ent.offset:ent.offset + ent.length]
+        result.append(f'<tg-emoji emoji-id="{ent.custom_emoji_id}">{html.escape(emoji_text)}</tg-emoji>')
+        last_end = ent.offset + ent.length
+    # Add remaining text
+    result.append(html.escape(text[last_end:]))
+    return "".join(result).strip()
+
 import database as db
 from database import normalize_service
 from handlers.user import DeliveryGuideReplyState, DeliveryFormReplyState
@@ -163,6 +188,11 @@ class AddServiceState(StatesGroup):
     required_referrals = State()
     requires_email = State()
     referral_deadline_days = State()
+    emoji = State()
+
+
+class GetEmojiState(StatesGroup):
+    waiting = State()
 
 
 class EditServiceStockState(StatesGroup):
@@ -277,6 +307,50 @@ async def cmd_admin(message: Message, state: FSMContext):
         return
     await state.clear()
     await message.answer("\U0001f468\u200d\U0001f4bc <b>Admin panel</b>", reply_markup=admin_menu(), parse_mode="HTML")
+
+
+# ─── PREMIUM EMOJI ID EXTRACTOR ────────────────────────────────────────────────
+
+@router.message(Command("getemoji"))
+async def cmd_getemoji(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.set_state(GetEmojiState.waiting)
+    await message.reply(
+        "🎨 <b>Premium emoji ID ekstraktor</b>\n\n"
+        "Premium stiker panelidan emojini tanlang va botga yuboring.\n"
+        "Men sizga uning <code>custom_emoji_id</code> raqamini qaytaraman.\n\n"
+        "Bekor qilish uchun /cancel yozing.",
+        parse_mode="HTML"
+    )
+
+
+@router.message(GetEmojiState.waiting)
+async def getemoji_extract(message: Message, state: FSMContext):
+    if message.text and message.text.strip() == "/cancel":
+        await state.clear()
+        await message.reply("❌ Bekor qilindi.")
+        return
+
+    if message.entities:
+        ids = []
+        for e in message.entities:
+            if e.type == "custom_emoji":
+                ids.append(f"<code>{e.custom_emoji_id}</code>")
+        if ids:
+            await message.reply(
+                "✅ <b>Topilgan premium emoji ID'lari:</b>\n\n" + "\n".join(ids) +
+                "\n\n<i>Bu ID'ni keyboards/user_kb.py dagi PREMIUM_EMOJI dict'ga qo'shing.</i>",
+                parse_mode="HTML"
+            )
+            await state.clear()
+            return
+
+    await message.reply(
+        "❌ Xabarda premium emoji topilmadi.\n"
+        "Iltimos premium stiker panelidan emoji tanlab yuboring.\n"
+        "Bekor qilish: /cancel"
+    )
 
 
 @router.message(F.text == "\U0001f519 Foydalanuvchi menyusi")
@@ -1619,7 +1693,7 @@ async def adm_add_name(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("Bekor qilindi.", reply_markup=admin_menu())
         return
-    name = message.text.strip()
+    name = _extract_custom_emoji_html(message)
     if not name or name == "-":
         await message.answer("❗ Nom bo'sh yoki '-' bo'lishi mumkin emas. Qaytadan kiriting:")
         return
@@ -1775,6 +1849,7 @@ async def _finish_add_service(message: Message, state: FSMContext):
         required_referrals=data.get("required_referrals", 0),
         requires_email=data.get("requires_email", 0),
         referral_deadline_days=data.get("referral_deadline_days", 0),
+        icon_emoji_id=data.get("icon_emoji_id"),
     )
     await state.clear()
     delivery_status = "\U0001f4e6 Yetkazish mazmuni saqlandi." if data.get("delivery_content") else ""
@@ -1876,7 +1951,39 @@ async def adm_add_referral_deadline_days(message: Message, state: FSMContext):
         await message.answer("❌ Faqat 0, 7, 14 yoki 30 kiriting:")
         return
     await state.update_data(referral_deadline_days=int(message.text))
-    await _finish_add_service(message, state)
+    # → Emoji tanlashga o'tish
+    await message.answer(
+        "🎨 Endi xizmat uchun premium emoji yuboring.\n\n"
+        "Premium stiker panelidan emoji tanlang va botga yuboring.\n"
+        "Kerak bo'lmasa /skip yozing.",
+        reply_markup=cancel_keyboard()
+    )
+    await state.set_state(AddServiceState.emoji)
+
+
+@router.message(AddServiceState.emoji)
+async def adm_add_service_emoji(message: Message, state: FSMContext):
+    if message.text in ADMIN_CANCEL_TEXTS:
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu())
+        return
+
+    if message.text and message.text.strip() == "/skip":
+        await state.update_data(icon_emoji_id=None)
+        await _finish_add_service(message, state)
+        return
+
+    if message.entities:
+        emoji_ids = [e.custom_emoji_id for e in message.entities if e.type == "custom_emoji"]
+        if emoji_ids:
+            await state.update_data(icon_emoji_id=emoji_ids[0])
+            await message.answer(f"✅ Emoji ID saqlandi: <code>{emoji_ids[0]}</code>", parse_mode="HTML")
+            await _finish_add_service(message, state)
+            return
+
+    await message.answer(
+        "❌ Iltimos premium emoji yuboring yoki /skip yozing."
+    )
 
 
 # EDIT SERVICE

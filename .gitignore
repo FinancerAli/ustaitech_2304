@@ -29,6 +29,16 @@ Thumbs.db
 /local_dev_backups/
 opt/local_dev_backups/
 
+# ─── Runtime ───
+.bot.lock
+
+# ─── Editor / Temp backups ───
+*.bak
+*.backup
+*.old
+*.save
+*.b64tmp
+
 # ─── Node (miniapp_frontend) ───
 node_modules/
 miniapp_frontend/node_modules/

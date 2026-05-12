@@ -30,7 +30,7 @@ from keyboards.user_kb import (
     main_menu, lang_keyboard, categories_keyboard, services_keyboard,
     service_detail_keyboard, cancel_keyboard, skip_cancel_keyboard, payment_method_keyboard, rating_keyboard,
     coupon_pick_keyboard, referral_order_keyboard, STATUS_EMOJI,
-    ref_campaigns_keyboard, ref_campaign_detail_keyboard,
+    ref_campaigns_keyboard, ref_campaign_detail_keyboard, profile_keyboard,
 )
 
 # Locale-driven skip/cancel matching — avoids apostrophe/emoji variation-selector mismatches
@@ -1069,80 +1069,48 @@ async def cmd_start(message: Message, state: FSMContext):
     pending_referral_source = None
     existing_user = await db.get_user(message.from_user.id)
     was_existing_user = existing_user is not None
-    if len(args) > 1 and args[1].startswith("ref_"):
-        ref_code = args[1][4:]
-        ref_user = await db.get_user_by_referral(ref_code)
-        if ref_user and ref_user["id"] != message.from_user.id:
-            referred_by = ref_user["id"]
-    elif len(args) > 1 and args[1].startswith("refcamp_"):
-        # Format: refcamp_{campaign_id}_{inviter_user_id}
-        payload = args[1][8:]
-        parts = payload.split("_", 1)
-        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-            campaign_id = int(parts[0])
-            inviter_id = int(parts[1])
-            if inviter_id != message.from_user.id:
-                pending_referral_source = {
-                    "type": "campaign",
-                    "campaign_id": campaign_id,
-                    "inviter_id": inviter_id,
-                    "was_existing_user": was_existing_user,
-                }
-    elif len(args) > 1 and args[1].startswith("refact_"):
-        payload = args[1][7:]
-        parts = payload.split("_", 1)
-        if len(parts) == 2 and parts[0].isdigit():
-            order = await db.get_order_by_referral(int(parts[0]), parts[1])
-            if order and int(order.get("required_referrals") or 0) > 0:
-                pending_referral_source = {
-                    "type": "order",
-                    "order_id": order["id"],
-                    "referral_code": parts[1],
-                    "owner_user_id": order["user_id"],
-                    "was_existing_user": was_existing_user,
-                }
+    # --- Referral logic disabled ---
+    # if len(args) > 1 and args[1].startswith("ref_"):
+    #     ref_code = args[1][4:]
+    #     ref_user = await db.get_user_by_referral(ref_code)
+    #     if ref_user and ref_user["id"] != message.from_user.id:
+    #         referred_by = ref_user["id"]
+    # elif len(args) > 1 and args[1].startswith("refcamp_"):
+    #     payload = args[1][8:]
+    #     parts = payload.split("_", 1)
+    #     if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+    #         campaign_id = int(parts[0])
+    #         inviter_id = int(parts[1])
+    #         if inviter_id != message.from_user.id:
+    #             pending_referral_source = {
+    #                 "type": "campaign",
+    #                 "campaign_id": campaign_id,
+    #                 "inviter_id": inviter_id,
+    #                 "was_existing_user": was_existing_user,
+    #             }
+    # elif len(args) > 1 and args[1].startswith("refact_"):
+    #     payload = args[1][7:]
+    #     parts = payload.split("_", 1)
+    #     if len(parts) == 2 and parts[0].isdigit():
+    #         order = await db.get_order_by_referral(int(parts[0]), parts[1])
+    #         if order and int(order.get("required_referrals") or 0) > 0:
+    #             pending_referral_source = {
+    #                 "type": "order",
+    #                 "order_id": order["id"],
+    #                 "referral_code": parts[1],
+    #                 "owner_user_id": order["user_id"],
+    #                 "was_existing_user": was_existing_user,
+    #             }
 
     user = existing_user
     is_new = user is None
     await db.save_user(message.from_user.id, message.from_user.username or "", message.from_user.full_name, referred_by)
-    if pending_referral_source:
-        await state.update_data(pending_referral_source=pending_referral_source)
+    # if pending_referral_source:
+    #     await state.update_data(pending_referral_source=pending_referral_source)
 
-    if referred_by and is_new:
-        ref_user = await db.get_user(referred_by)
-        if ref_user:
-            lang_ref = ref_user["language"] or "uz"
-            ref_count = await db.get_referral_count(referred_by)
-            tier = get_tier(ref_count)
-            bonus_amount = BONUS_JOIN[tier]
-            await db.add_bonus(referred_by, bonus_amount, f"Yangi a'zo: {message.from_user.full_name}")
-            updated_ref = await db.get_user(referred_by)
-            new_balance = updated_ref["bonus_balance"] if updated_ref else 0
-            tier_label = TIER_LABELS[tier][lang_ref]
-            try:
-                await message.bot.send_message(
-                    referred_by,
-                    t(lang_ref, "referral_bonus_notify",
-                      name=message.from_user.full_name,
-                      amount=bonus_amount,
-                      balance=new_balance),
-                    parse_mode="HTML",
-                )
-                
-                if ref_count == TIER_THRESHOLDS["silver"]:
-                    await message.bot.send_message(
-                        referred_by,
-                        t(lang_ref, "referral_silver_congrats", count=TIER_THRESHOLDS["silver"]),
-                        parse_mode="HTML"
-                    )
-                elif ref_count == TIER_THRESHOLDS["gold"]:
-                    await message.bot.send_message(
-                        referred_by,
-                        t(lang_ref, "referral_gold_congrats", count=TIER_THRESHOLDS["gold"]),
-                        parse_mode="HTML"
-                    )
-            except Exception:
-                pass
+    # --- Referral bonus logic disabled ---
+    # if referred_by and is_new:
+    #     ...
 
     user = await db.get_user(message.from_user.id)
     if is_new or not user or not user["language"]:
@@ -1155,8 +1123,8 @@ async def cmd_start(message: Message, state: FSMContext):
         reply_markup=main_menu(lang),
         parse_mode="HTML",
     )
-    if pending_referral_source:
-        await _process_pending_referral(state, message.bot, message.from_user.id)
+    # if pending_referral_source:
+    #     await _process_pending_referral(state, message.bot, message.from_user.id)
 
 
 def _is_expirable_order(order: dict | None) -> bool:
@@ -1520,7 +1488,7 @@ async def show_categories(message: Message, state: FSMContext):
 
     sent = await message.answer(
         t(lang, "categories_list", confirmed_orders=confirmed),
-        reply_markup=categories_keyboard(categories, lang),
+        reply_markup=categories_keyboard(categories, lang, min_prices=min_prices),
         parse_mode="HTML"
     )
     _track_ui_message(user_id, sent.message_id)
@@ -1531,6 +1499,7 @@ async def back_to_categories(call: CallbackQuery):
     await call.answer()
     lang = await get_lang(call.from_user.id)
     categories = await db.get_categories()
+    min_prices = await db.get_category_min_prices()
     stats = await db.get_stats()
     confirmed = stats["confirmed"]
 
@@ -1550,7 +1519,7 @@ async def back_to_categories(call: CallbackQuery):
         return
 
     text = t(lang, "categories_list", confirmed_orders=confirmed)
-    markup = categories_keyboard(categories, lang)
+    markup = categories_keyboard(categories, lang, min_prices=min_prices)
     try:
         await call.message.edit_text(text, reply_markup=markup, parse_mode="HTML")
     except Exception:
@@ -1650,6 +1619,7 @@ async def back_to_services_list(call: CallbackQuery):
     page = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 1
 
     categories = await db.get_categories()
+    min_prices = await db.get_category_min_prices()
     stats = await db.get_stats()
     confirmed = stats["confirmed"]
 
@@ -1677,7 +1647,7 @@ async def back_to_services_list(call: CallbackQuery):
 
     await call.message.answer(
         t(lang, "categories_list", confirmed_orders=confirmed),
-        reply_markup=categories_keyboard(categories, lang),
+        reply_markup=categories_keyboard(categories, lang, min_prices=min_prices),
         parse_mode="HTML",
     )
 
@@ -2790,6 +2760,32 @@ async def my_orders(message: Message, state: FSMContext):
         await message.answer(summary, reply_markup=referral_order_keyboard(order["id"], lang), parse_mode="HTML")
 
 
+@router.callback_query(F.data == "profile_orders")
+async def profile_orders_cb(call: CallbackQuery, state: FSMContext):
+    """Show orders list from profile inline button."""
+    await call.answer()
+    lang = await get_lang(call.from_user.id)
+    orders = await db.get_user_orders(call.from_user.id)
+    if not orders:
+        await call.message.answer(t(lang, "no_orders"))
+        return
+    text = t(lang, "orders_list")
+    for o in orders:
+        if int(o.get("required_referrals") or 0) > 0:
+            o = await db.expire_referral_order_if_needed(o["id"]) or o
+        emoji = STATUS_EMOJI.get(o["status"], "\u2753")
+        fp = o["final_price"] or o["price"]
+        text += f"{emoji} <b>#{o['id']}</b> \u2014 {o['service_name']}\n   {fp:,} so'm | {o['created_at'][:10]}\n"
+        if int(o.get("required_referrals") or 0) > 0:
+            cur = int(o.get("current_referrals") or 0)
+            req = int(o.get("required_referrals") or 0)
+            bar_f = min(10, round(cur / max(req, 1) * 10)) if req else 0
+            bar = "\U0001f7e9" * bar_f + "\u2b1c" * (10 - bar_f)
+            text += f"   {bar} {cur}/{req}\n"
+        text += "\n"
+    await call.message.answer(text, parse_mode="HTML")
+
+
 @router.callback_query(F.data.startswith("ref_link:"))
 async def referral_order_link(call: CallbackQuery):
     lang = await get_lang(call.from_user.id)
@@ -3037,6 +3033,7 @@ async def show_profile(message: Message):
         t(lang, "profile_bonus", bonus=bonus, tier=tier_label) +
         t(lang, "profile_cashback", total=total_cashback),
         parse_mode="HTML",
+        reply_markup=profile_keyboard(lang),
     )
 
 

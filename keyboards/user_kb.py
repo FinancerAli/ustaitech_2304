@@ -4,6 +4,18 @@ from aiogram.types import (
 )
 from locales import t
 
+# Telegram Premium Custom Emoji IDs
+# Replace these with your actual premium emoji IDs from your sticker sets
+PREMIUM_EMOJI = {
+    "orders": "5368324170671202286",    # 📦
+    "cart": "5377637695583979102",       # 🛒
+    "profile": "5372981976804190757",    # 👤
+    "services": "5373026167722876901",   # 🛍
+    "back": "5372926953978341498",       # 🔙
+    "buy": "5368324170671202286",       # 💳
+    "category": "5373026167722876901",   # 📂
+}
+
 STATUS_EMOJI = {
     "pending": "⏳",
     "payment_waiting": "💳",
@@ -68,11 +80,15 @@ def categories_keyboard(categories, lang="uz", min_prices=None):
         price_tag = ""
         if min_prices and cat_id in min_prices and min_prices[cat_id]:
             price_tag = f" — {min_prices[cat_id]:,.0f} {cur} dan"
-        buttons.append([InlineKeyboardButton(
-            text=f"{c['name']}{price_tag}",
-            callback_data=f"category:{cat_id}",
-            style="primary",
-        )])
+        kwargs = {
+            "text": f"{c['name']}{price_tag}",
+            "callback_data": f"category:{cat_id}",
+            "style": "primary",
+        }
+        cat_icon = dict(c).get("icon_emoji_id") or PREMIUM_EMOJI.get("category")
+        if cat_icon:
+            kwargs["icon_custom_emoji_id"] = cat_icon
+        buttons.append([InlineKeyboardButton(**kwargs)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -80,13 +96,20 @@ def services_keyboard(services, lang="uz", page: int = 1, total_count: int = 0, 
     cur = t(lang, "currency")
     buttons = []
     for s in services:
+        stock = int(dict(s).get("stock") or -1)
         text_lbl = f"{s['name']} — {s['price']:,} {cur}"
         if dict(s).get("promo_active"):
-            text_lbl += f" | ▫️ {s['cashback_percent']}% cashback"
-        buttons.append([InlineKeyboardButton(
-            text=text_lbl,
-            callback_data=f"service:{s['id']}:{page}"
-        )])
+            text_lbl += f" | {s['cashback_percent']}% cashback"
+        btn_style = "success" if stock != 0 else "danger"
+        kwargs = {
+            "text": text_lbl,
+            "callback_data": f"service:{s['id']}:{page}",
+            "style": btn_style,
+        }
+        icon_id = dict(s).get("icon_emoji_id") or PREMIUM_EMOJI.get("services")
+        if icon_id:
+            kwargs["icon_custom_emoji_id"] = icon_id
+        buttons.append([InlineKeyboardButton(**kwargs)])
         
     nav_buttons = []
     q_param = f":{query}" if query else ":"
@@ -102,17 +125,25 @@ def services_keyboard(services, lang="uz", page: int = 1, total_count: int = 0, 
         buttons.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="back_home")])
     else:
         buttons.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="back_categories")])
-        
+    
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def service_detail_keyboard(service_id: int, lang="uz", stock: int = -1, back_page: int = 1):
     buttons = []
     if stock > 0 or stock == -1:
-        buttons.append([InlineKeyboardButton(text=t(lang, "btn_order"), callback_data=f"order:{service_id}")])
-        buttons.append([InlineKeyboardButton(text=t(lang, "add_to_cart"), callback_data=f"cart_add:{service_id}")])
-    buttons.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data=f"back_services_list:{back_page}")])
+        buttons.append([InlineKeyboardButton(text=t(lang, "btn_order"), callback_data=f"order:{service_id}", style="success", icon_custom_emoji_id=PREMIUM_EMOJI["buy"])])
+        buttons.append([InlineKeyboardButton(text=t(lang, "add_to_cart"), callback_data=f"cart_add:{service_id}", icon_custom_emoji_id=PREMIUM_EMOJI["cart"])])
+    buttons.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data=f"back_services_list:{back_page}", icon_custom_emoji_id=PREMIUM_EMOJI["back"])])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def profile_keyboard(lang="uz"):
+    """Inline keyboard shown under profile message with orders button."""
+    orders_text = t(lang, "my_orders")
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=orders_text, callback_data="profile_orders", style="primary", icon_custom_emoji_id=PREMIUM_EMOJI["orders"])],
+    ])
 
 def cart_keyboard(cart_items, lang="uz"):
     buttons = []
